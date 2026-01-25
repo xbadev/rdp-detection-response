@@ -70,3 +70,27 @@ This phase establishes a verified baseline showing that the Windows endpoint is 
 ## What This Phase Enables
 
 With the baseline confirmed, subsequent phases can safely introduce controlled exposure to specific protocols and sources while measuring the exact impact of each change against this known-good starting point.
+
+---
+
+## Evidence and Screenshots
+
+The following artifacts document the verified baseline security behavior of the Windows endpoint.
+
+- **`ip-neigh-kali-win.png`**  
+  Confirms Layer 2 adjacency and neighbor discovery between Kali Linux and the Windows endpoint.
+
+- **`win-kali-ping.png`**  
+  Successful ICMP echo requests from the Windows endpoint to the Kali system, validating outbound connectivity.
+
+- **`kali-win-icmp-ping-fail.png`**  
+  Failed ICMP echo requests from Kali to the Windows endpoint, demonstrating default inbound traffic blocking.
+
+- **`win-firewall-default-rules.png`**  
+  Windows Defender Firewall default inbound and outbound rule configuration.
+
+- **`win-firewall-ICMPV4-In-disabled.png`**  
+  Verification that inbound ICMPv4 Echo Request rules are disabled by default under the File and Printer Sharing rule group.
+
+These screenshots serve as immutable proof of the baseline state prior to any firewall modifications or controlled exposure.
+
