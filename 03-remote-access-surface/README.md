@@ -81,3 +81,30 @@ With RDP exposed and validated, the environment is now prepared for:
 - Building alerting and response mechanisms
 
 This phase serves as the foundation for all detection and alerting work that follows.
+
+---
+
+## Evidence and Screenshots
+
+The following artifacts document the introduction and validation of the RDP attack surface.
+
+- **`kali-win-nmap-scan-before-rdp-enable.png`**  
+  Pre-exposure network scan from Kali showing no listening TCP services on the Windows endpoint.
+
+- **`win-enable-RemoteDesktop.png`**  
+  Windows system configuration showing Remote Desktop enabled on the endpoint.
+
+- **`kali-win-nmap-scan-after-rdp-enable.png`**  
+  Post-exposure network scan from Kali identifying port **3389/tcp** as open and associated with the RDP service.
+
+- **`rdp-thru-mstsc.png`**  
+  Successful Remote Desktop connection initiated using the Windows Remote Desktop client.
+
+- **`remote-desktop-connection-successful.png`**  
+  Authenticated interactive RDP session established with the Windows endpoint.
+
+- **`xfreerdp3-version-and-command.png`**  
+  Command-line RDP access from Kali using the `xfreerdp` client, confirming service reachability from an attacker-controlled system.
+
+These screenshots provide verifiable evidence of how enabling RDP immediately exposes a new remote authentication attack surface.
+
