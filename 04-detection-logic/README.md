@@ -172,7 +172,7 @@ Most importantly, this phase converts raw Windows event logs into meaningful sec
 
 The following artifacts document the design, implementation, and validation of RDP authentication failure detection logic.
 
-- **`4625-logon-failure-details.png`**  
+- [![4625 details](**`4625-logon-failure-details.png`**)](evidence/4625-logon-failure-details.png) 
   Detailed view of a failed authentication event (Event ID 4625), showing key fields used for detection including LogonType, source IP address, target username, and workstation name.
   
 - **`failed-logon-workstation-and-ipaddress.png`**  
