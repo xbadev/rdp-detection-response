@@ -79,13 +79,13 @@ With controlled exposure validated, the lab can now safely introduce higher-risk
 
 The following artifacts document the controlled ICMP exposure and source IP scoping behavior.
 
-- **`scoping-win-icmp-for-kali-only.png`**  
+- **[scoping-win-icmp-for-kali-only.png](evidence/scoping-win-icmp-for-kali-only.png)**  
   Windows Defender Firewall configuration showing the ICMPv4 inbound rule scoped exclusively to the Kali Linux VM’s IP address.
 
-- **`kali-win-icmp-ping-successful.png`**  
+- **[kali-win-icmp-ping-successful.png](evidence/kali-win-icmp-ping-successful.png)**  
   Successful ICMP echo requests from the authorized Kali system, confirming the scoped rule is functioning as intended.
 
-- **`host-win-ping-failure-prove-scoping.png`**  
+- **[host-win-ping-failure-prove-scoping.png](evidence/host-win-ping-failure-prove-scoping.png)**  
   Failed ICMP echo requests from the host machine, proving that non-authorized sources remain blocked despite the rule being enabled.
 
 These screenshots provide verifiable proof that controlled exposure was introduced without weakening the overall security posture of the Windows endpoint.
