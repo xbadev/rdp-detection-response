@@ -174,6 +174,9 @@ The following artifacts document the design, implementation, and validation of R
 
 - **`4625-logon-failure-details.png`**  
   Detailed view of a failed authentication event (Event ID 4625), showing key fields used for detection including LogonType, source IP address, target username, and workstation name.
+  
+- **`failed-logon-workstation-and-ipaddress.png`**  
+  Event data highlighting the originating workstation and source IP address used for correlation and grouping in detection logic.
 
 - **`XML-detection-filter.png`**  
   Advanced XML filter applied in Event Viewer to isolate RDP-related authentication failures using Event ID and LogonType constraints.
@@ -181,11 +184,8 @@ The following artifacts document the design, implementation, and validation of R
 - **`XML-detection-filter-result.png`**  
   Filtered Security log output demonstrating a reduced, high-signal dataset containing only relevant RDP authentication failures.
 
-- **`failed-logon-workstation-and-ipaddress.png`**  
-  Event data highlighting the originating workstation and source IP address used for correlation and grouping in detection logic.
-
-- **`add-administrator-requirement-clarity.png`**  
-  Script behavior demonstrating explicit enforcement of Administrator privileges when accessing the Windows Security log.
+- **`executionpolicy.png`**  
+  Execution policy configuration allowing controlled PowerShell script execution without weakening system security.
 
 - **`run-script-not-elevated-error.png`**  
   Error output produced when the detection script is executed without elevated privileges, preventing silent or misleading results.
@@ -193,8 +193,8 @@ The following artifacts document the design, implementation, and validation of R
 - **`run-script-as-administrator.png`**  
   Successful script execution with proper privileges, confirming correct permission handling.
 
-- **`executionpolicy.png`**  
-  Execution policy configuration allowing controlled PowerShell script execution without weakening system security.
+- **`add-administrator-requirement-clarity.png`**  
+  Script behavior demonstrating explicit enforcement of Administrator privileges when accessing the Windows Security log.
 
 - **`script-failed-logon-detection-result-cli.png`**  
   Command-line output showing detected suspicious RDP authentication activity, including source IP, target account, failure count, and timestamps.
