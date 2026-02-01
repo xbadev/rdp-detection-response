@@ -145,7 +145,7 @@ The monitoring script detected the authentication failure burst and successfully
 - Counted failed authentication attempts  
 - Delivered a real-time alert to the external notification channel  
 
-- **[discord-rdp-bruteforce-alert_shows_IP_target_failuresCount.png](evidence/discord-rdp-bruteforce-alert_shows-IP_target_failuresCount.png)**  
+- **[discord-rdp-bruteforce-alert_shows_IP_target_failuresCount.png](evidence/discord-rdp-bruteforce-alert_shows_IP_target_failuresCount.png)**  
   Real-time alert showing source IP, target account, and failure count.
 
 Shortly after, the targeted account entered a locked state due to the default Windows account lockout policy.
