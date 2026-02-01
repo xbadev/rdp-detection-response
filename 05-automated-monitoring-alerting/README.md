@@ -164,3 +164,44 @@ This phase enables:
 - A transition from detection to mitigation
 
 The account lockout observed during testing provides a natural pivot point into controlled response handling in the next phase.
+
+---
+
+## Evidence and Screenshots
+
+The following artifacts document the automation, alerting, and end-to-end validation of continuous RDP authentication monitoring.
+
+- **[the_task_in_task_scheduler.png](evidence/the_task_in_task_scheduler.png)**  
+  Windows Task Scheduler configuration showing the monitoring task registered to run automatically with highest privileges.
+
+- **[running_the_task_once.png](evidence/running_the_task_once.png)**  
+  Manual execution of the scheduled task to validate correct script execution and alerting behavior.
+
+- **[testing-discord-webhook-connectivity-command.png](evidence/testing-discord-webhook-connectivity-command.png)**  
+  Command-line test confirming outbound webhook connectivity prior to enabling full monitoring.
+
+- **[discord-testing-alert-result.png](evidence/discord-testing-alert-result.png)**  
+  Successful test alert delivered to the external Discord channel, validating webhook configuration.
+
+- **[webhook-url-default-file-permissions.png](evidence/webhook-url-default-file-permissions.png)**  
+  Default file permissions on the webhook secrets file prior to hardening.
+
+- **[webhook-url-remove-inheritance-file-permission.png](evidence/webhook-url-remove-inheritance-file-permission.png)**  
+  Removal of inherited permissions on the webhook secrets file to prevent unauthorized access.
+
+- **[webhook-url-set-permissions-command-and-display-permissions.png](evidence/webhook-url-set-permissions-command-and-display-permissions.png)**  
+  Explicit permission configuration restricting webhook access to SYSTEM and Administrators only.
+
+- **[kali-nmap-and-hydra-controlled-attack.png](evidence/kali-nmap-and-hydra-controlled-attack.png)**  
+  Controlled attack simulation from Kali using Nmap and Hydra to generate repeated RDP authentication failures.
+
+- **[discord-rdp-bruteforce-alert-shows-IP_target_failuresCount.png](evidence/discord-rdp-bruteforce-alert-shows-IP_target_failuresCount.png)**  
+  Real-time alert delivered to Discord identifying the source IP address, targeted account, and failure count.
+
+- **[windows-account-lockout-policy-locked-account.png](evidence/windows-account-lockout-policy-locked-account.png)**  
+  Windows account lockout triggered automatically after repeated failed authentication attempts.
+
+- **[successful-rdp_suspect_logging-in-machine.png](evidence/successful-rdp_suspect_logging-in-machine.png)**  
+  Successful RDP login following account unlock, confirming system recovery after lockout.
+
+These screenshots provide verifiable proof of a complete, automated RDP monitoring and alerting pipeline operating without manual intervention.
