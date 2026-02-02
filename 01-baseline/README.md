@@ -22,28 +22,53 @@ Both systems reside on the same internal subnet and are able to reach each other
 
 To validate baseline behavior, the following checks were performed.
 
+---
+
 ### 1. Neighbor Discovery and Address Confirmation
 
 The Kali system enumerated local network neighbors to identify the Windows endpoint and confirm Layer 2 adjacency.
+
+- **[ip-neigh-kali-win.png](evidence/ip-neigh-kali-win.png)**  
+  Confirms Layer 2 adjacency and neighbor discovery between Kali Linux and the Windows endpoint.
+
+---
 
 ### 2. Outbound Connectivity Validation (Windows → Kali)
 
 The Windows endpoint initiated ICMP echo requests to the Kali system. Responses were successfully received, confirming:
 
-- Network connectivity exists
-- Outbound traffic from Windows is permitted by default
+- Network connectivity exists  
+- Outbound traffic from Windows is permitted by default  
+
+- **[win-kali-ping.png](evidence/win-kali-ping.png)**  
+  Successful ICMP echo requests from the Windows endpoint to the Kali system, validating outbound connectivity.
+
+---
 
 ### 3. Inbound Connectivity Test (Kali → Windows)
 
 The Kali system attempted ICMP echo requests to the Windows endpoint. All requests failed, indicating inbound traffic was blocked.
 
+- **[kali-win-icmp-ping-fail.png](evidence/kali-win-icmp-ping-fail.png)**  
+  Failed ICMP echo requests from Kali to the Windows endpoint, demonstrating default inbound traffic blocking.
+
+---
+
 ### 4. Firewall Configuration Verification
 
 Windows Defender Firewall with Advanced Security was inspected to validate the observed behavior. The firewall was confirmed to be enabled, with inbound connections blocked unless explicitly allowed.
 
+- **[win-firewall-default-rules.png](evidence/win-firewall-default-rules.png)**  
+  Windows Defender Firewall default inbound and outbound rule configuration.
+
+---
+
 ### 5. ICMP Rule Inspection
 
 Inbound rules related to ICMP (Echo Request - ICMPv4-In) were reviewed and found to be disabled by default under the **File and Printer Sharing** rule group.
+
+- **[win-firewall-ICMPV4-In-disabled.png](evidence/win-firewall-ICMPV4-In-disabled.png)**  
+  Verification that inbound ICMPv4 Echo Request rules are disabled by default under the File and Printer Sharing rule group.
 
 ---
 
@@ -51,11 +76,11 @@ Inbound rules related to ICMP (Echo Request - ICMPv4-In) were reviewed and found
 
 The baseline assessment confirmed the following:
 
-- Windows Defender Firewall is enabled and enforcing policy
-- Inbound traffic is denied by default unless explicitly allowed
-- ICMP echo requests to the Windows endpoint are blocked
-- Outbound traffic from the Windows endpoint is permitted
-- The system is not externally discoverable via basic ICMP probing
+- Windows Defender Firewall is enabled and enforcing policy  
+- Inbound traffic is denied by default unless explicitly allowed  
+- ICMP echo requests to the Windows endpoint are blocked  
+- Outbound traffic from the Windows endpoint is permitted  
+- The system is not externally discoverable via basic ICMP probing  
 
 This behavior represents a secure default posture for a standalone Windows endpoint on an internal network.
 
@@ -70,27 +95,3 @@ This phase establishes a verified baseline showing that the Windows endpoint is 
 ## What This Phase Enables
 
 With the baseline confirmed, subsequent phases can safely introduce controlled exposure to specific protocols and sources while measuring the exact impact of each change against this known-good starting point.
-
----
-
-## Evidence and Screenshots
-
-The following artifacts document the verified baseline security behavior of the Windows endpoint.
-
-- **[ip-neigh-kali-win.png](evidence/ip-neigh-kali-win.png)**  
-  Confirms Layer 2 adjacency and neighbor discovery between Kali Linux and the Windows endpoint.
-
-- **[win-kali-ping.png](evidence/win-kali-ping.png)**  
-  Successful ICMP echo requests from the Windows endpoint to the Kali system, validating outbound connectivity.
-
-- **[kali-win-icmp-ping-fail.png](evidence/kali-win-icmp-ping-fail.png)**  
-  Failed ICMP echo requests from Kali to the Windows endpoint, demonstrating default inbound traffic blocking.
-
-- **[win-firewall-default-rules.png](evidence/win-firewall-default-rules.png)**  
-  Windows Defender Firewall default inbound and outbound rule configuration.
-
-- **[win-firewall-ICMPV4-In-disabled.png](evidence/win-firewall-ICMPV4-In-disabled.png)**  
-  Verification that inbound ICMPv4 Echo Request rules are disabled by default under the File and Printer Sharing rule group.
-
-These screenshots serve as immutable proof of the baseline state prior to any firewall modifications or controlled exposure.
-
