@@ -26,7 +26,7 @@ All authentication activity is recorded in the **Security** event log.
 Two event types are critical:
 
 - **Event ID 4624:** Successful logon  
-- **Event ID 4625:** Failed logon
+- **Event ID 4625:** Failed logon  
 
 Only failed logons are relevant for brute-force detection. However, these events must be filtered carefully to avoid noise from unrelated system activity.
 
@@ -46,6 +46,12 @@ This distinction is critical. Without filtering on LogonType, detection logic wo
 - Service account authentication  
 - Background system activity  
 
+- **[4625-logon-failure-details.png](evidence/4625-logon-failure-details.png)**  
+  Detailed view of a failed authentication event (Event ID 4625), showing LogonType, source IP address, target username, and workstation name.
+
+- **[failed-logon-workstation-and-ipaddress.png](evidence/failed-logon-workstation-and-ipaddress.png)**  
+  Event data highlighting the originating workstation and source IP address used for correlation and grouping.
+
 ---
 
 ### Signal Reduction Using Advanced Filtering
@@ -61,7 +67,11 @@ This filtering strategy removes:
 - Non-interactive authentication attempts  
 - Background system noise  
 
-The result is a clean, high-signal dataset suitable for detection logic.
+- **[XML-detection-filter.png](evidence/XML-detection-filter.png)**  
+  Advanced XML filter applied in Event Viewer to isolate RDP-related authentication failures.
+
+- **[XML-detection-filter-result.png](evidence/XML-detection-filter-result.png)**  
+  Filtered Security log output demonstrating a reduced, high-signal dataset suitable for detection logic.
 
 ---
 
@@ -71,12 +81,12 @@ The result is a clean, high-signal dataset suitable for detection logic.
 
 The detection logic is based on the following criteria:
 
-- Failed authentication events (Event ID 4625)
-- Network logons only (LogonType 3)
+- Failed authentication events (Event ID 4625)  
+- Network logons only (LogonType 3)  
 - Aggregation by:
-  - Source IP address
-  - Target username
-  - Time window
+  - Source IP address  
+  - Target username  
+  - Time window  
 
 ---
 
@@ -88,9 +98,9 @@ A detection threshold of:
 
 was selected based on the following reasoning:
 
-- Human users may occasionally mistype credentials
-- Automated attacks generate rapid, repeated failures
-- This threshold balances sensitivity with false-positive reduction
+- Human users may occasionally mistype credentials  
+- Automated attacks generate rapid, repeated failures  
+- This threshold balances sensitivity with false-positive reduction  
 
 This mirrors common SOC heuristics used in enterprise detection environments.
 
@@ -102,12 +112,12 @@ This mirrors common SOC heuristics used in enterprise detection environments.
 
 A custom PowerShell script was developed to operationalize the detection logic by:
 
-- Querying recent Security log events
-- Parsing event XML to extract relevant fields
-- Filtering for RDP-related failures only
-- Aggregating failures by source IP and target user
-- Flagging suspicious authentication bursts
-- Presenting results in a clear, readable format
+- Querying recent Security log events  
+- Parsing event XML to extract relevant fields  
+- Filtering for RDP-related failures only  
+- Aggregating failures by source IP and target user  
+- Flagging suspicious authentication bursts  
+- Presenting results in a clear, readable format  
 
 ---
 
@@ -117,10 +127,19 @@ Access to the Windows Security log requires elevated privileges.
 
 To prevent silent failures or misleading output:
 
-- The script explicitly checks for Administrator permissions
-- Execution halts with a clear error if insufficient privileges are detected
+- The script explicitly checks for Administrator permissions  
+- Execution halts with a clear error if insufficient privileges are detected  
+
+- **[run-script-not-elevated-error.png](evidence/run-script-not-elevated-error.png)**  
+  Error output produced when the detection script is executed without elevated privileges.
+
+- **[add-administrator-requirement-clarity.png](evidence/add-administrator-requirement-clarity.png)**  
+  Script behavior demonstrating explicit enforcement of Administrator privileges.
 
 Execution policy restrictions were handled to allow controlled script execution without weakening overall system security.
+
+- **[executionpolicy.png](evidence/executionpolicy.png)**  
+  Execution policy configuration allowing controlled PowerShell script execution.
 
 ---
 
@@ -128,14 +147,14 @@ Execution policy restrictions were handled to allow controlled script execution 
 
 The detection logic was validated through controlled testing:
 
-- Normal system behavior produced no alerts
-- Multiple failed RDP login attempts were generated intentionally
-- The script correctly identified suspicious activity, including:
-  - Source IP address
-  - Target account
-  - Number of failures
-  - Exact timestamps
-  - Originating workstation
+- Normal system behavior produced no alerts  
+- Multiple failed RDP login attempts were generated intentionally  
+
+- **[run-script-as-administrator.png](evidence/run-script-as-administrator.png)**  
+  Successful script execution with proper privileges.
+
+- **[script-failed-logon-detection-result-cli.png](evidence/script-failed-logon-detection-result-cli.png)**  
+  Command-line output showing detected suspicious RDP authentication activity, including source IP, target account, failure count, and timestamps.
 
 This confirmed that the detection logic functions as intended under realistic conditions.
 
@@ -147,9 +166,9 @@ At the end of this phase, the Windows endpoint is capable of reliably detecting 
 
 The system now provides:
 
-- High-signal visibility into RDP abuse patterns
-- Clear differentiation between benign user error and malicious activity
-- A solid analytical foundation for alerting and response automation
+- High-signal visibility into RDP abuse patterns  
+- Clear differentiation between benign user error and malicious activity  
+- A solid analytical foundation for alerting and response automation  
 
 ---
 
@@ -159,45 +178,9 @@ With reliable RDP authentication failure detection in place, the Windows endpoin
 
 This phase enables:
 
-- Real-time identification of suspicious RDP login behavior
-- Confidence that authentication abuse is distinguishable from normal usage
-- Structured telemetry suitable for automation
-- A trustworthy trigger for alerting without excessive false positives
+- Real-time identification of suspicious RDP login behavior  
+- Confidence that authentication abuse is distinguishable from normal usage  
+- Structured telemetry suitable for automation  
+- A trustworthy trigger for alerting without excessive false positives  
 
 Most importantly, this phase converts raw Windows event logs into meaningful security signals, making automated alerting and response both feasible and reliable.
-
----
-
-## Evidence and Screenshots
-
-The following artifacts document the design, implementation, and validation of RDP authentication failure detection logic.
-
-- **[4625-logon-failure-details.png](evidence/4625-logon-failure-details.png)**  
-  Detailed view of a failed authentication event (Event ID 4625), showing key fields used for detection including LogonType, source IP address, target username, and workstation name.
-
-- **[failed-logon-workstation-and-ipaddress.png](evidence/failed-logon-workstation-and-ipaddress.png)**  
-  Event data highlighting the originating workstation and source IP address used for correlation and grouping in detection logic.
-
-- **[XML-detection-filter.png](evidence/XML-detection-filter.png)**  
-  Advanced XML filter applied in Event Viewer to isolate RDP-related authentication failures using Event ID and LogonType constraints.
-
-- **[XML-detection-filter-result.png](evidence/XML-detection-filter-result.png)**  
-  Filtered Security log output demonstrating a reduced, high-signal dataset containing only relevant RDP authentication failures.
-
-- **[executionpolicy.png](evidence/executionpolicy.png)**  
-  Execution policy configuration allowing controlled PowerShell script execution without weakening system security.
-
-- **[run-script-not-elevated-error.png](evidence/run-script-not-elevated-error.png)**  
-  Error output produced when the detection script is executed without elevated privileges, preventing silent or misleading results.
-
-- **[run-script-as-administrator.png](evidence/run-script-as-administrator.png)**  
-  Successful script execution with proper privileges, confirming correct permission handling.
-
-- **[add-administrator-requirement-clarity.png](evidence/add-administrator-requirement-clarity.png)**  
-  Script behavior demonstrating explicit enforcement of Administrator privileges when accessing the Windows Security log.
-
-- **[script-failed-logon-detection-result-cli.png](evidence/script-failed-logon-detection-result-cli.png)**  
-  Command-line output showing detected suspicious RDP authentication activity, including source IP, target account, failure count, and timestamps.
-
-These screenshots provide verifiable proof that raw Windows authentication logs were successfully transformed into a reliable, high-signal detection capability.
-
