@@ -168,7 +168,7 @@ Each enforcement action generated a real-time alert containing:
 
 Private and local IP addresses were explicitly excluded from bans:
 
-- **[log-info-successfully-skipped-private-local-ip-ban.png](evidence/log-info-successfully-skipped-private-local-ip-ban.png)**  
+- **[log-info-successfully-skipped-private-local-ip-ban.png](evidence/log-info-successfully-skipped-private-local-ip-ban-.png)**  
   Responder logic confirming private and local addresses are skipped safely.
 
 ---
