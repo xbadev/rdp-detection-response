@@ -10,6 +10,18 @@ The goal is to demonstrate how endpoint telemetry can drive **immediate defensiv
 
 ---
 
+## Key Artifacts (Quick Access)
+
+- **Responder Script:**  
+  **[rdp_bruteforce_responder.ps1](scripts/rdp_bruteforce_responder.ps1)**  
+  PowerShell responder that detects repeated RDP authentication failures and enforces automated firewall containment.
+
+- **Scheduled Task Registration Script:**  
+  **[rdp_responder_task.ps1](scripts/rdp_responder_task.ps1)**  
+  Creates and registers the Windows Task Scheduler job that runs the responder automatically with elevated privileges.
+
+---
+
 ## Context and Threat Model
 
 By the end of Phase 05, the Windows endpoint continuously monitored RDP authentication activity and generated alerts when brute-force behavior was detected.
