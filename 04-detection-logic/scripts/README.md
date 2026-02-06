@@ -1,4 +1,4 @@
-# RDP Authentication Failure Detection Script
+# RDP Brute-Force Authentication Detection Script
 
 This script detects suspicious Remote Desktop Protocol (RDP) authentication behavior on a Windows endpoint by analyzing native Windows Security logs.
 
@@ -55,8 +55,8 @@ The script supports the following parameters:
 
 **Example:**
 
-`powershell`
-.\rdp_failed_logon_detection.ps1 -MinutesBack 3 -Threshold 6 
+`powershell
+.\rdp_failed_logon_detection.ps1 -MinutesBack 3 -Threshold 6`
 
 ---
 
