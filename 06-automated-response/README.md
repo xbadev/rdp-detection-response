@@ -170,6 +170,7 @@ Private and local IP addresses were explicitly excluded from bans:
 
 - **[log-info-successfully-skipped-private-local-ip-ban.png](evidence/log-info-successfully-skipped-private-local-ip-ban-.png)**  
   Responder logic confirming private and local addresses are skipped safely.
+  
   > **Note:**  
 > The exclusion of private and local IP address ranges is configurable and environment-dependent.  
 > For the purposes of this lab, the exclusion logic was temporarily commented during testing to allow the responder to act on attacks originating from Kali and the Windows host, both of which reside on private/local networks.  
