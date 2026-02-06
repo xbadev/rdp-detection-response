@@ -52,7 +52,7 @@ The responder script is designed to run repeatedly on a fixed schedule. Each exe
 
 To avoid losing context between executions, the responder maintains a **persistent state file** stored locally on the endpoint.
 
-- **[banlist-json-file-tracking-banned-ips-shows-kali-and-windows-host-banned-ip.png](evidence/banlist-json-file-tracking-banned-ips-shows-kali-and-windows-host-banned-ip.png)**  
+- **[banlist-json-file-tracking-banned-ips-shows-kali-and-windows-host-banned-ips.png](evidence/banlist-json-file-tracking-banned-ips-shows-kali-and-windows-host-banned-ips.png)**  
   Persistent banlist state file tracking attacker IPs, failure counts, timestamps, and ban expiration values.
 
 This state file tracks:
