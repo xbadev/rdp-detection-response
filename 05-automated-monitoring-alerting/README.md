@@ -10,6 +10,18 @@ The goal is to simulate how enterprise systems continuously monitor authenticati
 
 ---
 
+## Key Artifacts (Quick Access)
+
+- **Monitoring Script:**  
+  [`scripts/rdp_bruteforce_monitor.ps1`](scripts/rdp_bruteforce_monitor.ps1)  
+  PowerShell script that detects repeated RDP authentication failures using Windows Security Event ID 4625 analysis.
+
+- **Scheduled Task Registration Script:**  
+  [`scripts/rdp_monitor_task.ps1`](scripts/rdp_monitor_task.ps1)  
+  Creates and registers the Windows Task Scheduler job to run the monitoring script automatically with elevated privileges.
+
+---
+
 ## Context and Threat Model
 
 At this stage of the lab, the Windows endpoint exposes RDP internally and already has validated detection logic for failed authentication bursts.
