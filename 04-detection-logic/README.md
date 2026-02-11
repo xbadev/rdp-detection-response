@@ -10,6 +10,14 @@ The goal is visibility and signal quality rather than prevention, forming the fo
 
 ---
 
+### Key Script (Quick Access)
+
+- **Detection Script:**  
+  [`rdp_bruteforce_detection.ps1`](scripts/rdp_bruteforce_detection.ps1)  
+  PowerShell detection logic that monitors Windows Security Event ID 4625 and identifies repeated RDP authentication failures within a defined time window.
+
+---
+
 ## Context and Threat Model
 
 After Phase 03, the Windows endpoint exposes Remote Desktop Protocol (TCP 3389) to the internal network. While this mirrors common enterprise environments, it introduces a high-value authentication attack surface.
