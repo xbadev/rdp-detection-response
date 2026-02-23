@@ -77,19 +77,6 @@ Static IP addressing and interface separation are documented here:
 
 📁 **[`network/`](./network/)**
 
-## Key Capabilities Demonstrated
-
-Across all phases, this lab demonstrates:
-
-- Secure default Windows firewall behavior
-- Controlled service exposure
-- Precise authentication telemetry analysis
-- High-signal brute-force detection
-- Automated alerting pipelines
-- Host-based containment via firewall enforcement
-- Persistent state tracking for automated responses
-- SOC-style separation of detection, monitoring, and response duties
-
 ## Design Philosophy
 
 This lab was built with the following principles:
@@ -98,7 +85,6 @@ This lab was built with the following principles:
 - **Separation of duties:** Detection, monitoring, and response are isolated
 - **Native tooling first:** No third-party agents required
 - **Reproducibility:** Every phase is documented with evidence
-- **Enterprise realism:** Mirrors real-world endpoint security workflows
 
 ## Outcome
 
