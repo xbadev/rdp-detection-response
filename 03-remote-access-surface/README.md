@@ -1,111 +1,67 @@
-# Phase 03 - Remote Access Attack Surface (RDP)
+# Remote Access Attack Surface (RDP)
 
-## Objective
+Enabled Remote Desktop on the Windows endpoint to introduce a real authentication-based attack surface. RDP was chosen because it's widely used in enterprise environments and heavily targeted in real-world attacks.
 
-Introduce a high-risk remote access service to the Windows endpoint and observe how enabling the service changes the system’s external attack surface. This phase establishes a realistic authentication entry point that will later be used for attack simulation, detection, and alerting.
+## Environment
 
-Remote Desktop Protocol (RDP) was selected due to its widespread use in enterprise environments and its frequent targeting in real-world attacks.
+| System  | Role     | IP Address     |
+|---------|----------|----------------|
+| Kali VM | Attacker | 192.168.56.10  |
+| Win VM  | Target   | 192.168.56.40  |
 
----
-
-## Environment Context
-
-- **Attacker System:** Kali Linux VM  
-- **Target System:** Windows endpoint VM  
-- **Network:** VirtualBox Host-Only internal network  
-
-At the end of Phase 02, the Windows endpoint allowed only narrowly scoped ICMP traffic and had no exposed TCP services.
+Starting point: Phase 02 confirmed only scoped ICMP was allowed — no exposed TCP services.
 
 ---
 
-## Actions Performed
-
-The following steps were taken to intentionally introduce a remote access attack surface.
-
----
+## Steps
 
 ### 1. Pre-Exposure Port Scan
 
-A network scan was performed from the Kali system against the Windows endpoint.  
-The scan showed no listening TCP services, confirming that no remote access services were exposed.
+Scanned the Windows endpoint from Kali — no listening TCP services:
 
-- **[kali-win-nmap-scan-before-rdp-enable.png](evidence/kali-win-nmap-scan-before-rdp-enable.png)**  
-  Pre-exposure network scan from Kali showing no listening TCP services on the Windows endpoint.
+![Nmap before RDP](evidence/kali-win-nmap-scan-before-rdp-enable.png)
 
----
+### 2. Enable Remote Desktop
 
-### 2. Remote Desktop Enabled
+Enabled RDP through Windows system settings:
 
-Remote Desktop was enabled through the Windows system settings.  
-This action allowed inbound RDP connections to the endpoint.
-
-- **[win-enable-RemoteDesktop.png](evidence/win-enable-RemoteDesktop.png)**  
-  Windows system configuration showing Remote Desktop enabled on the endpoint.
-
----
+![Enable RDP](evidence/win-enable-RemoteDesktop.png)
 
 ### 3. Post-Exposure Port Scan
 
-The same network scan was repeated from the Kali system.  
-Port **3389/tcp** was now visible and identified as an active RDP service.
+Repeated the same scan — port **3389/tcp** now open and identified as RDP:
 
-- **[kali-win-nmap-scan-after-rdp-enable.png](evidence/kali-win-nmap-scan-after-rdp-enable.png)**  
-  Post-exposure network scan from Kali identifying port 3389/tcp as open and associated with the RDP service.
+![Nmap after RDP](evidence/kali-win-nmap-scan-after-rdp-enable.png)
 
----
+### 4. RDP Validation — Windows Client (mstsc)
 
-### 4. Legitimate Remote Access Validation (mstsc)
+Connected via the built-in Remote Desktop client. Authentication succeeded, full interactive session established:
 
-A Remote Desktop connection was initiated using the Windows Remote Desktop client.  
-Authentication succeeded, and a full interactive session was established.
+![mstsc connection](evidence/rdp-thru-mstsc.png)
 
-- **[rdp-thru-mstsc.png](evidence/rdp-thru-mstsc.png)**  
-  Successful Remote Desktop connection initiated using the Windows Remote Desktop client.
+![RDP session established](evidence/remote-desktop-connection-successful.png)
 
-- **[remote-desktop-connection-successful.png](evidence/remote-desktop-connection-successful.png)**  
-  Authenticated interactive RDP session established with the Windows endpoint.
+### 5. RDP Validation — Kali (xfreerdp)
 
----
+Connected from Kali using `xfreerdp`, confirming the service is reachable and functional from an attacker-controlled system:
 
-### 5. Command-Line Remote Access Validation (xfreerdp)
-
-A Remote Desktop connection was initiated from Kali using the `xfreerdp` client.  
-Authentication succeeded, confirming that the service was reachable and functional from an attacker-controlled system.
-
-- **[xfreerdp3-version-and-command.png](evidence/xfreerdp3-version-and-command.png)**  
-  Command-line RDP access from Kali using the `xfreerdp` client, confirming service reachability.
+![xfreerdp from Kali](evidence/xfreerdp3-version-and-command.png)
 
 ---
 
-## Security Findings
+## Findings
 
-This phase confirmed the following security behaviors:
+| Check | Result |
+|-------|--------|
+| Pre-RDP scan | No exposed TCP services |
+| Post-RDP scan | Port 3389 open |
+| Windows client (mstsc) | Authenticated successfully |
+| Kali client (xfreerdp) | Authenticated successfully |
 
-- Enabling RDP immediately expands the system’s attack surface  
-- Port exposure is observable through standard reconnaissance tools  
-- The RDP service is reachable from internal network peers  
-- Authentication-based access control becomes the primary security boundary  
-- Both GUI-based and CLI-based access methods function once RDP is enabled  
-
-The system transitioned from a non-exposed state to one that accepts remote authentication attempts.
-
----
-
-## Outcome
-
-A real, high-risk remote access service was intentionally exposed and validated. The change in attack surface was confirmed through network scanning, and legitimate access was established using multiple client methods.
-
-This phase establishes a realistic entry point for adversary simulation and mirrors common enterprise remote management scenarios.
+Enabling RDP immediately expanded the attack surface from zero exposed services to an active authentication endpoint reachable by any system on the network. Authentication is now the primary security boundary.
 
 ---
 
-## What This Phase Enables
+## Next
 
-With RDP exposed and validated, the environment is now prepared for:
-
-- Simulating malicious authentication attempts  
-- Observing Windows authentication and security event logs  
-- Implementing detection logic for brute-force and unauthorized access attempts  
-- Building alerting and response mechanisms  
-
-This phase serves as the foundation for all detection and alerting work that follows.
+With a real remote access service exposed, the next phase focuses on what happens when that entry point gets attacked — simulating brute-force attempts and analyzing how Windows logs authentication failures.
