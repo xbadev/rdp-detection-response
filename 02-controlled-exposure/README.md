@@ -1,95 +1,56 @@
-# Phase 02 - Controlled Exposure (ICMP)
+# Controlled Exposure (ICMP)
 
-## Objective
+Introduced a scoped inbound firewall rule on the Windows endpoint to allow ICMP from a single authorized source while keeping everything else blocked. This validates that Windows Defender Firewall enforces source-level access control before exposing any real services.
 
-Introduce a deliberately scoped inbound network exposure to the Windows endpoint while maintaining the principle of least privilege. This phase demonstrates how a service can be selectively enabled for a specific source without broadly exposing the system to the network.
+## Environment
 
-The purpose is to validate firewall rule scoping and confirm that access controls behave exactly as configured.
+| System      | Role                | IP Address     |
+|-------------|---------------------|----------------|
+| Kali VM     | Authorized attacker | 192.168.56.10  |
+| Win VM      | Target              | 192.168.56.40  |
+| Host machine | Unauthorized source | 192.168.56.1   |
 
----
-
-## Environment Context
-
-- **Attacker System:** Kali Linux VM  
-- **Target System:** Windows endpoint VM  
-- **Additional System:** Host machine (used to validate scoping enforcement)  
-- **Network:** VirtualBox Host-Only internal network
-
-At the end of Phase 01, the Windows endpoint was confirmed to block all inbound ICMP traffic by default.
+Starting point: Phase 01 confirmed all inbound ICMP was blocked by default.
 
 ---
 
-## Actions Performed
+## Firewall Changes
 
-The following controlled changes were made to the Windows Defender Firewall configuration.
+### 1. Enable ICMPv4 Inbound Rule
 
----
+Enabled the existing **Echo Request — ICMPv4-In** rule under the File and Printer Sharing rule group.
 
-### 1. ICMPv4 Inbound Rule Enabled
+### 2. Scope to Kali Only
 
-The existing **Echo Request - ICMPv4-In** rule under the **File and Printer Sharing** rule group was enabled.
+Restricted the rule to accept ICMP echo requests **only** from the Kali VM's IP — no ranges, no subnets, single source only:
 
-This action introduces inbound ICMP capability while still relying on firewall enforcement for access control.
+![ICMP rule scoped to Kali](evidence/scoping-win-icmp-for-kali-only.png)
 
----
+### 3. Test — Authorized Source (Kali → Windows)
 
-### 2. Source IP Scoping Applied
+Kali pinged the Windows endpoint — all replies received. The scoped rule works as intended:
 
-The rule scope was restricted to allow ICMP echo requests **only** from the Kali Linux VM’s IP address.
+![Kali ping success](evidence/kali-win-icmp-ping-successful.png)
 
-- No IP ranges were permitted  
-- No subnets were permitted  
-- Access was limited to a single trusted source  
+### 4. Test — Unauthorized Source (Host → Windows)
 
-- **[scoping-win-icmp-for-kali-only.png](evidence/scoping-win-icmp-for-kali-only.png)**  
-  Windows Defender Firewall configuration showing the ICMPv4 inbound rule scoped exclusively to the Kali Linux VM’s IP address.
+Host machine pinged the Windows endpoint — all requests failed. Non-authorized sources are still blocked despite the rule being enabled:
 
----
-
-### 3. Authorized Source Validation (Kali → Windows)
-
-The Kali system initiated ICMP echo requests to the Windows endpoint.  
-All requests were successfully received, confirming that the scoped rule functioned exactly as intended.
-
-- **[kali-win-icmp-ping-successful.png](evidence/kali-win-icmp-ping-successful.png)**  
-  Successful ICMP echo requests from the authorized Kali system, validating correct rule scoping and enforcement.
+![Host ping failure](evidence/host-win-ping-failure-prove-scoping.png)
 
 ---
 
-### 4. Unauthorized Source Validation (Host → Windows)
+## Findings
 
-The host machine attempted to ping the Windows endpoint.  
-All requests failed, demonstrating that access was correctly denied to non-authorized sources.
+| Test | Source | Result |
+|------|--------|--------|
+| ICMP from Kali | Authorized | Allowed |
+| ICMP from Host | Unauthorized | Blocked |
 
-- **[host-win-ping-failure-prove-scoping.png](evidence/host-win-ping-failure-prove-scoping.png)**  
-  Failed ICMP echo requests from the host machine, proving that non-authorized sources remain blocked despite the rule being enabled.
-
----
-
-## Security Findings
-
-This phase confirmed the following security behaviors:
-
-- Firewall rules can be enabled without introducing broad exposure  
-- Source IP scoping is enforced correctly by Windows Defender Firewall  
-- Authorized systems gain access only when explicitly permitted  
-- Unauthorized systems remain blocked even when the service is enabled  
-- Exposure can be validated empirically through controlled testing  
-
-The Windows endpoint remained protected while allowing narrowly defined access for testing purposes.
+The firewall correctly enforces source-scoped rules — enabling a service for one source does not expose it to others. The endpoint's security posture remains intact.
 
 ---
 
-## Outcome
+## Next
 
-A controlled inbound exposure was successfully introduced without weakening the overall security posture of the system. Access was limited to a single trusted source, and all other inbound ICMP traffic remained blocked.
-
-This confirms that the firewall configuration supports precise, least-privilege access control and that future exposure decisions can be made safely and deliberately.
-
----
-
-## What This Phase Enables
-
-With controlled exposure validated, the lab can now safely introduce higher-risk services while maintaining confidence in firewall enforcement. This phase establishes the foundation for exposing and analyzing real attack surfaces in subsequent phases.
-
-
+With firewall scoping validated, the next phase introduces an actual attack surface: enabling RDP on the Windows endpoint for the Kali VM, moving from ICMP testing into real protocol exposure.
