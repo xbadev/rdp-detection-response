@@ -1,115 +1,66 @@
-# IP Addressing Plan – Windows Endpoint
+# Network Configuration — Windows Endpoint
 
-This document records the network configuration of the Windows endpoint VM
-used in the homelab.
-
-The Windows endpoint is configured with **two network adapters** to separate
-internal lab traffic from external internet access.
-
----
+The Windows VM uses **two network adapters** to separate internal lab traffic from internet access.
 
 ## Network Interface Overview
 
-| Adapter    | Network Type | Purpose |
-|-----------|--------------|--------|
-| Ethernet  | Host-Only    | Internal lab communication |
-| Ethernet 2 | NAT          | Outbound internet access |
+| Adapter    | Network Type | Purpose                      |
+|------------|--------------|------------------------------|
+| Ethernet   | Host-Only    | Internal lab communication   |
+| Ethernet 2 | NAT          | Outbound internet access     |
 
 ---
 
 ## Host-Only Network (Internal)
 
-**Subnet:** `192.168.56.0/24`  
-**Purpose:** Internal communication between lab virtual machines.
+**Subnet:** `192.168.56.0/24`
 
-| Device     | Interface | IP Address |
-|-----------|----------|-----------|
-| Windows VM | Ethernet | 192.168.56.40 |
+| Device     | Interface | IP Address     |
+|------------|-----------|----------------|
+| Windows VM | Ethernet  | 192.168.56.40  |
 
-### Configuration Summary
-
-- Static IP address manually assigned
-- No default gateway configured
-- Used for communication with Kali Linux, Ubuntu server, and host system
-- Not exposed to the internet
-
-Verification of interface separation and IP assignment:
-
-- **[win-ipconfig.png](screenshots/win-ipconfig.png)**
+Static IP, no default gateway. Used for communication with Kali Linux, Ubuntu server, and host machine — not exposed to the internet.
 
 ---
 
-## Manual Static IP Configuration (Host-Only Adapter)
+## Static IP Configuration (Host-Only Adapter)
 
-Because the Windows VM uses **two adapters**, the Host-Only interface was
-manually configured to ensure predictable addressing and avoid conflicts
-with the NAT adapter.
+The Host-Only interface was manually configured to ensure predictable addressing and avoid conflicts with the NAT adapter.
 
-The following steps apply **only to the Host-Only adapter**.
+### Step 1 — Open Network Adapter Settings
 
----
+**Network & Internet → Ethernet → Change adapter options**
 
-### Step 1 – Open Network Adapter Settings
+![Change adapter options](screenshots/change-adapter-options-link.png)
 
-From Windows Settings:
+### Step 2 — Select the Host-Only Adapter
 
-- Go to **Network & Internet**
-- Select **Ethernet**
-- Click **Change adapter options**
+Right-click **Ethernet** (Host-Only) → **Properties**
 
-- **[change-adapter-options-link.png](screenshots/change-adapter-options-link.png)**
+![Ethernet properties](screenshots/right-click-ethernet-then-properties.png)
 
----
+### Step 3 — Configure IPv4 Manually
 
-### Step 2 – Select the Host-Only Adapter
+**Internet Protocol Version 4 (TCP/IPv4) → Properties → Use the following IP address:**
 
-In **Network Connections**:
+| Field          | Value           |
+|----------------|-----------------|
+| IP address     | `192.168.56.40` |
+| Subnet mask    | `255.255.255.0` |
+| Default gateway | *(none)*       |
 
-- Right-click **Ethernet** (Host-Only)
-- Select **Properties**
-
-The NAT adapter remains unchanged.
-
-- **[right-click-ethernet-then-properties.png](screenshots/right-click-ethernet-then-properties.png)**
-
----
-
-### Step 3 – Configure IPv4 Manually
-
-Within Ethernet Properties:
-
-- Select **Internet Protocol Version 4 (TCP/IPv4)**
-- Click **Properties**
-- Choose **Use the following IP address**
-
-Configured values:
-
-- IP address: `192.168.56.40`
-- Subnet mask: `255.255.255.0`
-- Default gateway: *(none)*
-
-This ensures internal reachability without external routing.
-
-- **[IPv4-then-manually-choose-IP.png](screenshots/IPv4-then-manually-choose-IP.png)**
+![Static IP configuration](screenshots/IPv4-then-manually-choose-IP.png)
 
 ---
 
 ## NAT Network (External)
 
-**Purpose:** Internet access for updates and package downloads.
-
-### Configuration Summary
-
-- IP address assigned dynamically via VirtualBox NAT (DHCP)
-- Default gateway provided automatically
-- Outbound access only
-- Not used for internal lab communication or attack simulation
+IP assigned dynamically via VirtualBox NAT DHCP. Provides outbound internet access for updates and downloads — not used for lab communication or attack simulation.
 
 ---
 
-## Outcome
+## Verification
 
-The Windows endpoint now operates with:
+Confirmed both adapters are active with correct addressing:
 
-- A stable, static IP on the Host-Only interface
-- A separate NAT interface for external connectivity
+![ipconfig output](screenshots/win-ipconfig.png)
