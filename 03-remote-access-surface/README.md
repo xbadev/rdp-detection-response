@@ -6,7 +6,7 @@ Enabled Remote Desktop on the Windows endpoint to introduce a real authenticatio
 
 | System  | Role     | IP Address     |
 |---------|----------|----------------|
-| Kali VM | Attacker | 192.168.56.10  |
+| Kali VM | Attacker | 192.168.56.30  |
 | Win VM  | Target   | 192.168.56.40  |
 
 Starting point: Phase 02 confirmed only scoped ICMP was allowed — no exposed TCP services.
