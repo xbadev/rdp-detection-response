@@ -1,246 +1,105 @@
-# Phase 06 – Automated RDP Response and Containment
+# Automated RDP Response & Containment
 
-## Objective
+Moved from passive alerting to active containment — the responder script automatically detects RDP brute-force activity, creates a Windows Firewall rule blocking the attacker's IP, tracks bans with expiration in a persistent state file, and sends a real-time Discord alert.
 
-Move from passive security monitoring to **active, automated containment** of malicious behavior on a Windows endpoint.
+## Scripts
 
-This phase implements a host-based response mechanism that automatically reacts to repeated RDP authentication failures by enforcing temporary firewall bans against attacking source IPs and issuing real-time alerts.
+| Script | Purpose |
+|--------|---------|
+| [`rdp_bruteforce_responder.ps1`](scripts/rdp_bruteforce_responder.ps1) | Detects RDP brute-force, enforces firewall bans, tracks state, sends alerts |
+| [`rdp_responder_task.ps1`](scripts/rdp_responder_task.ps1) | Registers the responder as a scheduled task with elevated privileges |
 
-The goal is to demonstrate how endpoint telemetry can drive **immediate defensive action without human intervention**, closely mirroring real-world enterprise response workflows.
+## Environment
 
----
+| System       | Role                | IP Address     |
+|--------------|---------------------|----------------|
+| Kali VM      | Attacker            | 192.168.56.10  |
+| Win VM       | Target              | 192.168.56.40  |
+| Host machine | Secondary attacker  | 192.168.56.1   |
 
-## Key Artifacts (Quick Access)
-
-- **Responder Script:**  
-  **[rdp_bruteforce_responder.ps1](scripts/rdp_bruteforce_responder.ps1)**  
-  PowerShell responder that detects repeated RDP authentication failures and enforces automated firewall containment.
-
-- **Scheduled Task Registration Script:**  
-  **[rdp_responder_task.ps1](scripts/rdp_responder_task.ps1)**  
-  Creates and registers the Windows Task Scheduler job that runs the responder automatically with elevated privileges.
-
----
-
-## Context and Threat Model
-
-By the end of Phase 05, the Windows endpoint continuously monitored RDP authentication activity and generated alerts when brute-force behavior was detected.
-
-However, **alerting alone does not stop an attack**.
-
-In production environments, sustained authentication abuse must be contained quickly to prevent account lockouts, service degradation, or lateral movement attempts. This phase introduces an automated responder that actively reduces the attack surface as soon as malicious behavior is identified.
+Starting point: Phase 05 had automated monitoring and alerting — but alerting alone doesn't stop an attack.
 
 ---
 
-## Design Philosophy and Separation of Duties
+## How the Responder Works
 
-A key design decision in this phase was to preserve the integrity of earlier phases.
+Each scheduled execution:
 
-Rather than modifying existing detection or monitoring scripts:
+1. Queries recent Event ID 4625 failures (LogonType 3)
+2. Checks if any source IP exceeds the threshold
+3. Creates a Windows Firewall block rule for that IP
+4. Records the ban in a persistent JSON state file with an expiration timestamp
+5. Sends a Discord alert with attacker IP, target account, failure count, and ban duration
 
-- The finalized monitoring logic was **copied into a new responder script**
-- Original detection and monitoring scripts remain unchanged
-- Each script has a single, clearly defined responsibility
+The state file prevents duplicate bans and handles automatic expiration without manual cleanup:
 
-This creates a clean separation:
+![Banlist JSON](evidence/banlist-json-file-tracking-banned-ips-shows-kali-and-windows-host-banned-ips.png)
 
-- **Detection:** Identify suspicious activity  
-- **Monitoring:** Evaluate activity continuously and alert  
-- **Response:** Enforce containment actions  
+Successful ban enforcement logged locally:
 
-This mirrors real SOC pipelines, where response tooling builds on validated detection logic without altering upstream components.
-
----
-
-## Automated Responder Architecture
-
-### Stateless Execution with Persistent Memory
-
-The responder script is designed to run repeatedly on a fixed schedule. Each execution:
-
-- Evaluates recent failed RDP authentication events
-- Determines whether thresholds are exceeded
-- Takes action only when necessary
-
-To avoid losing context between executions, the responder maintains a **persistent state file** stored locally on the endpoint.
-
-- **[banlist-json-file-tracking-banned-ips-shows-kali-and-windows-host-banned-ips.png](evidence/banlist-json-file-tracking-banned-ips-shows-kali-and-windows-host-banned-ips.png)**  
-  Persistent banlist state file tracking attacker IPs, failure counts, timestamps, and ban expiration values.
-
-This state file tracks:
-
-- Attacker source IP address
-- Targeted username
-- Failure count
-- First and last observed timestamps
-- Ban expiration time
-
-By loading and updating this state on every run, the responder avoids duplicate enforcement and automatically expires bans without manual cleanup.
+![Ban logging](evidence/logging-the-ban-successfully.png)
 
 ---
 
-## Response Logic and Containment Strategy
+## Task Scheduler Setup
 
-When repeated RDP failures exceed the configured threshold within a short time window, the responder performs three actions atomically:
+Removed the previous monitoring-only task and registered the new responder task — runs on a recurring interval, highest privileges, no active session required:
 
-1. Creates a Windows Defender Firewall rule blocking inbound traffic from the attacker IP
-2. Records the ban in the persistent state file with an expiration timestamp
-3. Emits an alert describing the incident and the action taken
+![Unregister old task](evidence/Unregister-previous-scheduled-task-command.png)
 
-- **[logging-the-ban-successfully.png](evidence/logging-the-ban-successfully.png)**  
-  Local responder logs showing successful firewall enforcement and ban registration.
+![Register responder task](evidence/register-new-responder-task.png)
 
-The firewall rule operates at the host level, immediately cutting off access to the RDP service regardless of authentication outcomes.
-
-This ensures the response **stops the attack path itself**, not just the login attempts.
+Directories and files created automatically on first scheduled run: [auto-created files](evidence/directories-files-created-by-the-script-auto-run.png)
 
 ---
 
-## Scheduling and Autonomous Execution
+## Account Lockout Adjustment
 
-### Task Scheduler Integration
-
-To ensure continuous protection, the responder runs automatically using Windows Task Scheduler.
-
-As part of this phase:
-
-- The previous monitoring-only scheduled task was explicitly removed  
-- A new responder task was registered to execute on a recurring interval  
-
-- **[Unregister-previous-scheduled-task-command.png](evidence/Unregister-previous-scheduled-task-command.png)**  
-  Removal of the prior monitoring-only scheduled task.
-
-- **[register-new-responder-task.png](evidence/register-new-responder-task.png)**  
-  Registration of the automated responder task with elevated privileges.
-
-The task:
-
-- Runs with highest privileges  
-- Does not require an active user session  
-- Executes the responder script by file path  
-
-- **[directories-files-created-by-the-script-auto-run.png](evidence/directories-files-created-by-the-script-auto-run.png)**  
-  Automatic creation of responder directories and files during scheduled execution.
-
-This design allows script updates to be picked up automatically without reconfiguring the task.
+Windows' built-in account lockout policy was temporarily increased during testing so the responder's firewall ban would trigger *before* the OS locked the account. This ensures containment is driven by the responder, not by default Windows behavior: [lockout threshold change](evidence/increase-account-lockout-threshold.png)
 
 ---
 
-## Handling Windows Account Lockout Interference
+## Validation — Multi-Source Attacks
 
-During testing, Windows’ built-in account lockout policy could prematurely stop brute-force attempts before the responder acted.
+### Kali (Hydra)
 
-To ensure the responder was responsible for containment:
+After the responder triggered, Kali could no longer see RDP as open — Hydra failed at the network layer:
 
-- The account lockout threshold was temporarily increased  
+![Kali blocked](evidence/kali-not-showing-rdp-open-port-and-failing-hydra-after-ban.png)
 
-- **[increase-account-lockout-threshold.png](evidence/increase-account-lockout-threshold.png)**  
-  Temporary adjustment of account lockout policy to allow responder-driven containment.
+### Windows Host (mstsc)
 
-This ensured the firewall ban was applied **before** the OS account lockout mechanism triggered.
+RDP connection attempts from the banned host machine also blocked:
 
----
+![Host blocked](evidence/rdp-from-windows-host-banned.png)
 
-## Validation Through Controlled Attacks
+### Alert Delivered
 
-### Multi-Source Attack Simulation
+Real-time Discord alert with full context — attacker IP, target account, failure count, time window, ban duration:
 
-The responder was validated using controlled RDP brute-force attempts from multiple sources:
-
-- Kali Linux attacker VM using Hydra
-- Repeated failed logons via MSTSC
-
-- **[kali-not-showing-rdp-open-port-and-failing-hydra-after-ban.png](evidence/kali-not-showing-rdp-open-port-and-failing-hydra-after-ban.png)**  
-  Kali scan and Hydra attempts failing after firewall ban enforcement.
-
-- **[rdp-from-windows-host-banned.png](evidence/rdp-from-windows-host-banned.png)**  
-  RDP connection attempts from a banned Windows host blocked at the network layer.
-
-Once the responder triggered:
-
-- Firewall rules immediately blocked the attacker IP
-- RDP connectivity failed at the network layer
-- Port scans no longer showed RDP as reachable
-- Subsequent brute-force attempts could not establish connections
+![Discord ban alert](evidence/discord-ban-alert-details.png)
 
 ---
 
-## Alerting and Operator Visibility
+## Private IP Handling
 
-Each enforcement action generated a real-time alert containing:
+The responder skips private and local IP ranges by default to prevent self-blocking: [skip logic](evidence/log-info-successfully-skipped-private-local-ip-ban-.png)
 
-- Attacker IP address
-- Targeted username
-- Failure count
-- Evaluation time window
-- Ban duration
-
-- **[discord-ban-alert-details.png](evidence/discord-ban-alert-details.png)**  
-  Real-time Discord alert showing ban enforcement details and attacker context.
-
-Private and local IP addresses were explicitly excluded from bans:
-
-- **[log-info-successfully-skipped-private-local-ip-ban.png](evidence/log-info-successfully-skipped-private-local-ip-ban-.png)**  
-  Responder logic confirming private and local addresses are skipped safely.
-  
-  > **Note:**  
-> The exclusion of private and local IP address ranges is configurable and environment-dependent.  
-> For the purposes of this lab, the exclusion logic was temporarily commented during testing to allow the responder to act on attacks originating from Kali and the Windows host, both of which reside on private/local networks.  
->  
-> In a production environment, these exclusions would typically remain enforced to prevent accidental self-blocking or disruption of internal infrastructure.
+> **Lab note:** This exclusion was temporarily commented out during testing since both Kali and the host machine use private IPs. In production, these exclusions would remain enforced to protect internal infrastructure.
 
 ---
 
-## Observations and Security Implications
+## Summary
 
-This phase highlights an important operational insight:
+This is the final phase of the lab. The Windows endpoint now operates with a complete security pipeline:
 
-Authentication abuse can escalate into **availability impact** even without credential compromise.
+| Phase | Capability |
+|-------|-----------|
+| 01 – Baseline | Documented default security posture |
+| 02 – Controlled Exposure | Validated firewall scoping with ICMP |
+| 03 – Attack Surface | Exposed RDP, confirmed reachability |
+| 04 – Detection | Built PowerShell detection for brute-force patterns |
+| 05 – Monitoring & Alerting | Automated detection on a schedule with Discord alerts |
+| 06 – Response | Automated firewall containment with persistent ban tracking |
 
-By enforcing containment early and automatically, the responder:
-
-- Prevents cascading account lockouts
-- Reduces attack noise across the environment
-- Limits exposure windows without analyst intervention
-
-This reflects how endpoint-based controls are used in practice to stop attacks in progress.
-
----
-
-## Outcome
-
-At the end of this phase, the Windows endpoint operates with:
-
-- Continuous authentication monitoring
-- Automated evaluation of suspicious behavior
-- Host-level containment via firewall enforcement
-- Persistent ban tracking with expiration
-- Real-time alerting for responder visibility
-
-The system now actively defends itself against RDP brute-force attacks.
-
----
-
-## What This Phase Enables
-
-With automated containment in place, the Windows endpoint now supports:
-
-- End-to-end detection, alerting, and response workflows
-- Safe experimentation with response tuning and thresholds
-- Extension into more advanced response logic
-- Integration with centralized logging or SIEM pipelines
-
----
-
-## Foundation for the Windows Endpoint Lab
-
-This phase represents the final functional layer of the Windows endpoint security pipeline.
-
-Together, the completed phases demonstrate:
-
-- Controlled exposure of services
-- Precise authentication telemetry analysis
-- Continuous monitoring and alerting
-- Automated defensive enforcement
-
-The Windows endpoint lab is now **complete and enterprise-representative**.
+The endpoint detects, alerts on, and actively blocks RDP brute-force attacks without human intervention.
