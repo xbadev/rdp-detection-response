@@ -6,9 +6,9 @@ Introduced a scoped inbound firewall rule on the Windows endpoint to allow ICMP 
 
 | System      | Role                | IP Address     |
 |-------------|---------------------|----------------|
-| Kali VM     | Authorized attacker | 192.168.56.10  |
+| Kali VM     | Authorized attacker | 192.168.56.30  |
 | Win VM      | Target              | 192.168.56.40  |
-| Host machine | Unauthorized source | 192.168.56.1   |
+| Host machine | Unauthorized source | 192.168.56.1  |
 
 Starting point: Phase 01 confirmed all inbound ICMP was blocked by default.
 
