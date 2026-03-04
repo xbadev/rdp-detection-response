@@ -8,7 +8,7 @@ Built a PowerShell detection script that monitors Windows Security logs for RDP 
 
 | System  | Role     | IP Address     |
 |---------|----------|----------------|
-| Kali VM | Attacker | 192.168.56.10  |
+| Kali VM | Attacker | 192.168.56.30  |
 | Win VM  | Target   | 192.168.56.40  |
 
 Starting point: Phase 03 confirmed RDP (port 3389) is exposed and accepting authentication.
