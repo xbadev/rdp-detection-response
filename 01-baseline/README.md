@@ -6,7 +6,7 @@ Documented the default network security posture of the Windows endpoint before i
 
 | System  | Role     | IP Address     |
 |---------|----------|----------------|
-| Kali VM | Attacker | 192.168.56.10  |
+| Kali VM | Attacker | 192.168.56.30  |
 | Win VM  | Target   | 192.168.56.40  |
 
 Both systems on the same VirtualBox Host-Only subnet (`192.168.56.0/24`).
