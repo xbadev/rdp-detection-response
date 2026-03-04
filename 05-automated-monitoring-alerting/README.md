@@ -13,7 +13,7 @@ Automated the detection logic from Phase 04 into a continuous monitoring pipelin
 
 | System  | Role     | IP Address     |
 |---------|----------|----------------|
-| Kali VM | Attacker | 192.168.56.10  |
+| Kali VM | Attacker | 192.168.56.30  |
 | Win VM  | Target   | 192.168.56.40  |
 
 Starting point: Phase 04 validated the detection logic manually — this phase makes it run unattended.
