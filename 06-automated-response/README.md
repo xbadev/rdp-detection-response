@@ -13,7 +13,7 @@ Moved from passive alerting to active containment — the responder script autom
 
 | System       | Role                | IP Address     |
 |--------------|---------------------|----------------|
-| Kali VM      | Attacker            | 192.168.56.10  |
+| Kali VM      | Attacker            | 192.168.56.30  |
 | Win VM       | Target              | 192.168.56.40  |
 | Host machine | Secondary attacker  | 192.168.56.1   |
 
