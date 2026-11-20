@@ -21,6 +21,6 @@ $cfg = Import-LabConfig
 
 $scriptPath = Join-Path $cfg.InstallRoot 'scripts\rdp_bruteforce_responder.ps1'
 Register-LabEventTask -TaskName $cfg.ResponderTaskName -ScriptPath $scriptPath `
-    -Description 'RDP lab Phase 06: detect, block, alert; runs on every Security 4625'
+    -Description 'RDP lab Phase 06: detect, block, alert; runs on every Security 4625 and every 5 min to expire bans' -SweepMinutes 5
 
-Write-Host "Registered '$($cfg.ResponderTaskName)': runs $scriptPath on every Security 4625." -ForegroundColor Green
+Write-Host "Registered '$($cfg.ResponderTaskName)': runs $scriptPath on every Security 4625 and every 5 minutes." -ForegroundColor Green

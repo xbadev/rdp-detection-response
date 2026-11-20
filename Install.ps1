@@ -139,8 +139,8 @@ if ($NoTask) {
 } else {
     Register-LabEventTask -TaskName $cfg.ResponderTaskName `
         -ScriptPath "$InstallRoot\scripts\rdp_bruteforce_responder.ps1" `
-        -Description 'RDP lab Phase 06: detect, block, alert; runs on every Security 4625'
-    Write-Host "==> registered '$($cfg.ResponderTaskName)' (fires on every Security 4625)"
+        -Description 'RDP lab Phase 06: detect, block, alert; runs on every Security 4625 and every 5 min to expire bans' -SweepMinutes 5
+    Write-Host "==> registered '$($cfg.ResponderTaskName)' (fires on every Security 4625, plus a 5-minute sweep for ban expiry)"
 }
 
 # ---------- 8. Smoke test ---------------------------------------------

@@ -465,11 +465,17 @@ function Register-LabEventTask {
         guarantees a run after the last event, which sees the whole burst.
         Runs are idempotent (already-banned IPs are skipped), so extra queued
         runs cost a few seconds of CPU and nothing else.
+
+    .PARAMETER SweepMinutes
+        If > 0, also run the script on a repeating timer. The responder needs
+        this: expired bans are lifted only when the responder runs, and on a
+        quiet box with no new 4625s it would otherwise never run.
     #>
     param(
         [Parameter(Mandatory)] [string]$TaskName,
         [Parameter(Mandatory)] [string]$ScriptPath,
-        [string]$Description = 'RDP Detection & Response lab: runs on every Security 4625 event'
+        [string]$Description = 'RDP Detection & Response lab: runs on every Security 4625 event',
+        [int]$SweepMinutes = 0
     )
 
     Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue |
@@ -482,13 +488,20 @@ function Register-LabEventTask {
     $trigger = New-CimInstance -CimClass $cimClass -ClientOnly
     $trigger.Enabled = $true
     $trigger.Subscription = $script:EventSubscriptionXml
+    $triggers = @($trigger)
+
+    if ($SweepMinutes -gt 0) {
+        # No -RepetitionDuration: on Server 2016+ that means "repeat indefinitely".
+        $triggers += New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
+            -RepetitionInterval (New-TimeSpan -Minutes $SweepMinutes)
+    }
 
     $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
         -StartWhenAvailable -MultipleInstances Queue -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
 
     Register-ScheduledTask -TaskName $TaskName -Description $Description -Action $action `
-        -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
+        -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
 }
 
 
