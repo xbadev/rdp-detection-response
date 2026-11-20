@@ -18,6 +18,11 @@
         $records = @(Get-RdpFailedLogons)
     Under Set-StrictMode -Version Latest, calling .Count on $null throws,
     so skipping the @() is a crash, not just a style issue.
+
+    The flip side: inside a function that returns a collection, ANY output
+    not captured becomes part of the result. Helper calls in those functions
+    are assigned to $null (`$null = Write-LabLog ...`) so a helper that
+    starts emitting something can't leak into the returned items.
 #>
 
 Set-StrictMode -Version Latest
@@ -176,7 +181,7 @@ function Get-RdpFailedLogons {
     if ($noIp -gt 0) {
         # If this shows up during a known attack, 4625 isn't carrying the source
         # IP on this build; see "Known risk" in the Phase 04 README.
-        Write-LabLog "NO_SOURCE_IP: $noIp network-logon failure(s) in the last ${MinutesBack}m had no IpAddress"
+        $null = Write-LabLog "NO_SOURCE_IP: $noIp network-logon failure(s) in the last ${MinutesBack}m had no IpAddress"
     }
 }
 
@@ -438,8 +443,8 @@ function Remove-ExpiredBans {
         if ([string]::IsNullOrWhiteSpace($b.ip) -or $null -eq $expiresAt) { continue }
 
         if ($expiresAt -le $now) {
-            Unblock-LabIp -Ip $b.ip
-            Write-LabLog "UNBAN: SourceIP=$($b.ip) ExpiredAt=$($expiresAt.ToString('s'))"
+            $null = Unblock-LabIp -Ip $b.ip
+            $null = Write-LabLog "UNBAN: SourceIP=$($b.ip) ExpiredAt=$($expiresAt.ToString('s'))"
         } else {
             $b
         }

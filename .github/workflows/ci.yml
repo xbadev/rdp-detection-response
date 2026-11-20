@@ -9,7 +9,7 @@ jobs:
     name: PowerShell (Windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Parse every PowerShell file with Windows PowerShell 5.1
         shell: powershell
@@ -46,7 +46,7 @@ jobs:
     name: Shell + encoding
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: PowerShell files must be ASCII-only
         # Windows PowerShell 5.1 reads BOM-less files as Windows-1252, where

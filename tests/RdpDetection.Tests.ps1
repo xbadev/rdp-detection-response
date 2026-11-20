@@ -112,8 +112,8 @@ Describe 'Banlist persistence' {
 
 Describe 'Remove-ExpiredBans' {
     BeforeAll {
-        Mock -ModuleName RdpDetection Unblock-LabIp { $null }
-        Mock -ModuleName RdpDetection Write-LabLog { $null }
+        Mock -ModuleName RdpDetection Unblock-LabIp { return }
+        Mock -ModuleName RdpDetection Write-LabLog { return }
     }
 
     It 'accepts an empty banlist without throwing' {
@@ -133,7 +133,7 @@ Describe 'Remove-ExpiredBans' {
 
 Describe 'Alert cooldown' {
     BeforeAll {
-        Mock -ModuleName RdpDetection Write-LabLog { $null }
+        Mock -ModuleName RdpDetection Write-LabLog { return }
         Mock -ModuleName RdpDetection Import-LabConfig {
             @{ AlertCooldownPath = (Join-Path $env:RDP_TEST_DIR 'cooldowns.json'); AlertCooldownMinutes = 10 }
         }
