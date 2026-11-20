@@ -1,67 +1,60 @@
-# Network Configuration — Windows Endpoint
+# Network Configuration — Windows Server Target
 
-The Windows VM has two virtual NICs in Proxmox, one bridged to each Proxmox bridge:
+The Windows Server VM has two virtual NICs in Proxmox, one on each bridge:
 
 | Adapter | Bridge | Purpose | Address |
 |---|---|---|---|
-| Ethernet | `vmbr1` | Internal lab — attack traffic | Static `10.10.10.40/24` |
-| Ethernet 2 | `vmbr0` | Internet — updates, downloads | DHCP |
+| Lab NIC | `vmbr1` | Internal lab: attack traffic | Static `10.10.10.40/24`, no gateway |
+| Internet NIC | `vmbr0` | Updates, evaluation activation, webhook delivery | DHCP |
 
-`vmbr1` has no uplink. Internal lab traffic is fully isolated from the home network.
+`vmbr1` has no uplink, so lab traffic never touches the home network. The `vmbr0` NIC is not optional for this VM: the Windows Server evaluation must be activated online within its first 10 days or it starts shutting down automatically, and the responder posts alerts over the internet.
 
 ## IP plan (vmbr1)
 
 | Host | Address | Role |
 |---|---|---|
 | Ubuntu Server | `10.10.10.20` | SSH lab target |
-| Kali Linux | `10.10.10.30` | Attacker (used by both labs) |
-| Windows | `10.10.10.40` | RDP lab target (this VM) |
+| Kali Linux | `10.10.10.30` | Attacker (both labs) |
+| Windows Server 2025 | `10.10.10.40` | RDP lab target (this VM) |
 
-## Configuring the static IP on Windows
+## Building the VM on Proxmox (short version)
 
-The internal NIC is configured manually so the address is predictable and survives reboots without DHCP races on a network that has no DHCP server.
+- ISO: Windows Server 2025 evaluation from the Microsoft Evaluation Center (free registration, 180 days). Pick **Desktop Experience** at install: the GUI makes the demo and screenshots easier to follow than Server Core.
+- Disk/NIC: VirtIO for performance. Attach the `virtio-win` driver ISO as a second CD-ROM and load the storage driver during setup ("Load driver"), then install the rest of the guest tools after first boot. Same process as the Windows 10 VM in [proxmox-homelab](https://github.com/xbadev/proxmox-homelab).
+- Two network devices: one on `vmbr0`, one on `vmbr1`. Note both MAC addresses from the Hardware tab.
+- After first boot: rename the computer (e.g. `RDP-TARGET`), run Windows Update, confirm activation with `slmgr /dli`.
 
-**Network & Internet → Change adapter options →** right-click the internal Ethernet adapter → **Properties** → **Internet Protocol Version 4 (TCP/IPv4)** → **Properties** → **Use the following IP address**.
+## Static IP on the lab NIC
 
-| Field | Value |
-|---|---|
-| IP address | `10.10.10.40` |
-| Subnet mask | `255.255.255.0` |
-| Default gateway | *(none)* |
-| Preferred DNS | *(none)* |
-
-The internet adapter (Ethernet 2, on `vmbr0`) keeps DHCP — its default route is what gets used for `Invoke-RestMethod` calls to the Discord webhook.
-
-## Identifying which adapter is which
-
-In Proxmox, NICs appear in the order you added them in the VM hardware tab. Inside Windows, they show up with kernel-assigned names that don't always match the order. The reliable way to tell them apart:
+Identify the adapters by MAC first (Windows names them in no guaranteed order):
 
 ```powershell
-Get-NetAdapter | Format-Table Name, MacAddress, InterfaceDescription, Status -Auto
-Get-NetIPAddress -AddressFamily IPv4 | Format-Table InterfaceAlias, IPAddress, PrefixLength -Auto
+Get-NetAdapter | Format-Table Name, MacAddress, Status -AutoSize
 ```
 
-Cross-reference the MAC addresses with what Proxmox shows on each NIC in the VM hardware tab. Rename them via **Network Connections → right-click → Rename** so the labels stick (e.g. `LabInternal`, `LabExternal`) — clearer in screenshots and easier when running PowerShell against a specific adapter.
+Match the MACs to the Proxmox Hardware tab, rename the adapters so the labels are obvious, then set the lab NIC:
+
+```powershell
+Rename-NetAdapter -Name 'Ethernet'   -NewName 'LabInternal'   # adjust to what Get-NetAdapter showed
+Rename-NetAdapter -Name 'Ethernet 2' -NewName 'LabExternal'
+New-NetIPAddress -InterfaceAlias 'LabInternal' -IPAddress 10.10.10.40 -PrefixLength 24
+```
+
+No gateway and no DNS on `LabInternal`: the default route stays on `LabExternal`, which is the path `Invoke-RestMethod` uses to reach the webhook.
 
 ## Verification
 
 ```powershell
-ipconfig /all                                  # both adapters with correct addresses
-Test-NetConnection 10.10.10.30 -CommonTCPPort RDP  # reach Kali (will likely fail since Kali isn't listening on 3389, but the route works)
-Test-Connection -ComputerName 10.10.10.30 -Count 2  # ICMP reachability
+Get-NetIPAddress -AddressFamily IPv4 | Format-Table InterfaceAlias, IPAddress, PrefixLength -AutoSize
+Get-NetRoute -DestinationPrefix 0.0.0.0/0 | Format-Table InterfaceAlias, NextHop   # default route on LabExternal only
+Test-Connection -ComputerName 10.10.10.30 -Count 2                                 # Windows -> Kali works by default
 ```
 
-After Phase 02 (controlled ICMP exposure), the second command should succeed in the Kali → Windows direction; before then it will fail (default firewall blocks inbound).
+Kali → Windows ping fails until Phase 02 enables the scoped ICMP rule. That's expected, not a network problem.
 
-## Reverting to DHCP
-
-If the static config breaks something:
+## Panic button: back to DHCP
 
 ```powershell
-$adapter = Get-NetAdapter -Name 'Ethernet'      # or whatever you named the internal NIC
-$adapter | Set-NetIPInterface -Dhcp Enabled
-$adapter | Remove-NetIPAddress -Confirm:$false
-$adapter | Remove-NetRoute -Confirm:$false
+Remove-NetIPAddress -InterfaceAlias 'LabInternal' -Confirm:$false
+Set-NetIPInterface -InterfaceAlias 'LabInternal' -Dhcp Enabled
 ```
-
-Useful as a panic button during initial setup.

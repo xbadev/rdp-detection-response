@@ -7,8 +7,8 @@ Enabled inbound ICMP from a single source (Kali) before exposing any real servic
 | System | Role | IP |
 |---|---|---|
 | Kali | Authorized source | `10.10.10.30` |
-| Windows | Target | `10.10.10.40` |
-| Proxmox host | Unauthorized source | host's vmbr1 IP, if any |
+| Windows Server 2025 | Target | `10.10.10.40` |
+| Ubuntu (SSH lab) | Unauthorized source | `10.10.10.20` |
 
 Starting state: Phase 01 confirmed all inbound traffic is blocked by default.
 

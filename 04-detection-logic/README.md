@@ -25,7 +25,12 @@ For brute-force detection, only 4625 matters. But 4625 also fires for failed loc
 | 7 | Unlock (screensaver) |
 | 10 | RemoteInteractive (also RDP) |
 
-Filtering on `LogonType = 3` cleanly isolates RDP failures from console failures and screen-unlock noise. (LogonType 10 also exists for RDP; in practice 4625 from RDP brute-force lands as type 3 because Network Level Authentication fails before the RemoteInteractive logon is even attempted.)
+The detector keeps **LogonType 3 and 10** and drops the rest:
+
+- **3 (Network):** with Network Level Authentication, which is on by default, a bad RDP password fails during CredSSP, before any desktop session exists, so Windows logs it as a network logon.
+- **10 (RemoteInteractive):** with NLA turned off, the same failure is logged as type 10.
+
+Keeping both means detection doesn't silently stop if someone disables NLA. Type 3 also covers failed SMB/WMI logons; on this lab box only RDP is exposed, so in practice those are RDP. Console (2) and unlock (7) failures are always dropped.
 
 Each 4625 event carries:
 - `IpAddress` — source of the attempt
@@ -34,6 +39,21 @@ Each 4625 event carries:
 - `Status` / `SubStatus` — failure reason codes
 
 These are the fields the script extracts.
+
+## Known risk: a 4625 without a source IP
+
+A ban needs `IpAddress`. Some Windows builds and configurations log RDP/NLA failures with `IpAddress` empty or `-`. When that happens, the module skips those events (it can't ban them) and writes a `NO_SOURCE_IP:` line to the lab log, so the problem is visible instead of silent.
+
+**First thing to check on a new Windows Server VM:** run the attack once, then
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='Security'; Id=4625} -MaxEvents 3 |
+    ForEach-Object { ([xml]$_.ToXml()).Event.EventData.Data |
+        Where-Object Name -in 'IpAddress','LogonType','TargetUserName' |
+        ForEach-Object { '{0} = {1}' -f $_.Name, $_.InnerText } ; '---' }
+```
+
+If `IpAddress` shows `10.10.10.30`, you're good. If it shows `-`, the fallback is Event ID 140 in `Microsoft-Windows-RemoteDesktopServices-RdpCoreTS/Operational`, which logs the client IP for failed NLA logons. That fallback isn't built yet, because it isn't needed unless this check fails.
 
 ## Detection logic
 
@@ -46,9 +66,9 @@ These are the fields the script extracts.
 The script:
 
 1. Asserts elevation (Security log requires it).
-2. Calls `Get-RdpFailedLogons` from the shared module — pulls 4625 events, parses XML, filters to LogonType 3, drops loopback addresses.
-3. Calls `Find-BruteForceBursts` — groups by (IP, user), flags any group at/over threshold.
-4. Prints results, including the most recent 5 events per flagged group.
+2. Calls `Get-RdpFailedLogons` from the shared module: pulls 4625 events since the later of `MinutesBack` ago or the last `Reset.ps1`, parses the event XML, keeps LogonType 3/10, drops events with no usable source IP.
+3. Calls `Find-BruteForceBursts`: groups by (IP, user), returns groups at or over the threshold.
+4. Prints the flagged groups with their 5 most recent events, or, if nothing crossed the threshold, the per-pair counts it did see (useful when tuning).
 
 ## Usage
 
@@ -70,13 +90,13 @@ Or directly from the repo (development mode):
 
 ## Validation
 
-1. From Kali, generate failed logons:
+1. From Kali, generate six failed logons against the decoy account:
 
    ```bash
-   hydra -l Administrator -P pw.txt -t 4 -V rdp://10.10.10.40
+   ./attacker/run-attack.sh
    ```
 
-   (Where `pw.txt` is a list of wrong passwords. 5+ entries needed to cross the default threshold.)
+   (If the Phase 06 responder task is installed, it will also block Kali partway through. That's expected and doesn't affect this check.)
 
 2. On Windows, run the detection script:
 
@@ -86,7 +106,7 @@ Or directly from the repo (development mode):
 
    Expected output: `SUSPECT: ...` block listing source IP `10.10.10.30`, target user, count, and the 5 most recent records.
 
-3. Re-run after 10 minutes (with no new attack). Expected: `OK: No failed RDP logons in the window.`
+3. Re-run after the window has passed (or after `.\Reset.ps1`). Expected: `OK: no failed RDP/network logons with a source IP in the window.`
 
 ## Privilege requirement
 

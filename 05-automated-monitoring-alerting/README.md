@@ -1,15 +1,15 @@
 # Phase 05 — Automated Monitoring & Alerting
 
-Same detection logic as Phase 04, but runs unattended via an event-triggered scheduled task and posts to a Discord webhook on threshold crossing. **Alert-only mode** — no firewall changes. Use this phase to demonstrate detection-and-notification before adding containment in Phase 06.
+Same detection as Phase 04, run unattended by an event-triggered scheduled task, posting to a Discord webhook when a source IP crosses the threshold. **Alert-only mode:** no firewall changes. It shows detection plus notification on its own, before Phase 06 adds containment, and stays useful as the "an analyst decides what to block" variant.
 
 | Script | Purpose |
 |---|---|
-| [`scripts/rdp_bruteforce_monitor.ps1`](scripts/rdp_bruteforce_monitor.ps1) | The monitor itself — checks recent 4625s, posts to webhook on threshold |
+| [`scripts/rdp_bruteforce_monitor.ps1`](scripts/rdp_bruteforce_monitor.ps1) | Checks recent 4625s; posts to the webhook on threshold, once per IP per cooldown |
 | [`scripts/rdp_monitor_task.ps1`](scripts/rdp_monitor_task.ps1) | Registers the monitor as an event-triggered task |
 
-## Architecture — event-triggered, not polling
+## Event-triggered, not polling
 
-The original lab used a 2-minute interval task. That's a 2-minute worst-case latency from attack to alert. This refresh uses a **Task Scheduler event trigger** firing on every Security log entry of Event ID 4625:
+The original version of this lab ran on a 2-minute interval, so an alert could land up to ~2 minutes after the attack. Now the task has an **event trigger** on every Security 4625:
 
 ```xml
 <QueryList>
@@ -19,15 +19,23 @@ The original lab used a 2-minute interval task. That's a 2-minute worst-case lat
 </QueryList>
 ```
 
-When LSASS writes a 4625 event, Task Scheduler kicks off the monitor within ~2-5 seconds. The monitor then evaluates the last `MinutesBack` minutes of failures (not just the one that triggered it), so a single event doesn't fire an alert — only crossing the threshold does.
+When LSASS writes a 4625, Task Scheduler starts the monitor. Each run evaluates the whole `MinutesBack` window, not just the event that started it, so one stray failure doesn't alert; crossing the threshold does.
 
-This trades polling latency for slightly higher CPU on heavy attacks (one PowerShell process per event), which is a fine trade for a lab. In production with millions of events you'd subscribe via WMI or ETW instead.
+`New-ScheduledTaskTrigger` has no option for event triggers, so the shared module builds one from the `MSFT_TaskEventTrigger` CIM class (`Register-LabEventTask` in [`Lib/RdpDetection.psm1`](../Lib/RdpDetection.psm1)). The same function registers the Phase 06 task.
+
+### Queued runs
+
+An attack writes several 4625s within a second or two. The task queues runs (`-MultipleInstances Queue`) instead of ignoring triggers that arrive while a run is in progress. With `IgnoreNew`, the run started by the first failure could see fewer than `Threshold` events, every later trigger would be dropped, and the attack would never alert. With `Queue`, there is always a run after the last event that sees the full burst.
+
+The trade-off is one short PowerShell process per failed logon. That's fine for a lab; at production volume you'd use a long-running subscriber (ETW, or a SIEM forwarder) instead.
+
+## Alert cooldown
+
+Because every 4625 starts a run, a 6-attempt attack produces up to six runs that all see the same burst. Without deduplication that's six identical alerts. The monitor records each alerted source IP in `C:\HomeLab\rdp-dr\state\alert_cooldowns.json` and stays quiet for that IP for `AlertCooldownMinutes` (default 10). The cooldown starts only after a successful post, so a webhook outage doesn't suppress the next attempt.
 
 ## Webhook delivery
 
-Discord-compatible — any service accepting `POST {"content": "..."}` (Discord, Slack incoming webhooks, custom endpoints).
-
-The webhook URL is stored at `C:\HomeLab\rdp-dr\secrets\discord_webhook_url.txt`, ACL'd to SYSTEM and Administrators only by `Install.ps1`. The shared module reads it on demand — never embedded in code, never logged.
+Any endpoint that accepts `POST {"content": "..."}` works (Discord, Slack incoming webhooks). The URL lives in `C:\HomeLab\rdp-dr\secrets\discord_webhook_url.txt`, readable only by SYSTEM and Administrators (set by `Install.ps1`) and never logged. Delivery forces TLS 1.2 (Windows PowerShell 5.1 may not by default) and retries up to 3 times with backoff; failures are logged as `WEBHOOK_ERROR`.
 
 ## Sample alert
 
@@ -35,64 +43,40 @@ The webhook URL is stored at `C:\HomeLab\rdp-dr\secrets\discord_webhook_url.txt`
 🚨 RDP brute-force detected
 Host: 10.10.10.40
 Source IP: 10.10.10.30
-Target user: Administrator
+Target user: labuser
 Failures: 5 in 2m
-Last seen: 2026-05-04T03:14:22
+Last seen: 2026-11-20T03:14:22
 ```
 
-## Setup
+## Setup (alert-only mode)
 
-After running `Install.ps1` from the repo root (which only registers the Phase 06 responder task by default), if you want **alert-only** mode without containment:
+`Install.ps1` registers only the Phase 06 responder. For alert-only:
 
 ```powershell
-# Disable the responder task
-Get-ScheduledTask -TaskName 'HomeLab-RDP-Responder' | Disable-ScheduledTask
-
-# Register the alert-only monitor task
+Disable-ScheduledTask -TaskName 'HomeLab-RDP-Responder'
 .\05-automated-monitoring-alerting\scripts\rdp_monitor_task.ps1
 ```
 
-To switch back to full response, re-enable the responder task and disable the monitor.
-
-You can also leave both registered and enabled — the monitor will alert and the responder will block on the same event. Slight redundancy, but useful when demoing.
+To go back: `Enable-ScheduledTask -TaskName 'HomeLab-RDP-Responder'` and `Disable-ScheduledTask -TaskName 'HomeLab-RDP-Monitor'`. Leaving both enabled also works: one alerts, the other blocks (and alerts).
 
 ## Smoke test
 
-Send a test webhook without generating any events:
-
 ```powershell
-C:\HomeLab\rdp-dr\scripts\rdp_bruteforce_monitor.ps1 -TestWebhook
+& 'C:\HomeLab\rdp-dr\scripts\rdp_bruteforce_monitor.ps1' -TestWebhook
 ```
 
-Expected: green `Test alert sent.` line and a Discord message arriving in a few seconds.
+Expected: `Test alert sent.` and a message in the channel within a few seconds. A red failure line points to the log.
 
-## End-to-end validation
+## End-to-end check
 
-1. From Kali:
+1. On Windows: `.\Reset.ps1`, then `Get-Content C:\HomeLab\rdp-dr\logs\rdp_monitor.log -Wait -Tail 20`
+2. On Kali: `./attacker/run-attack.sh`
+3. Expect exactly one `SUSPECT: SourceIP=10.10.10.30 ...` line and one alert, not one per failure.
 
-   ```bash
-   hydra -l Administrator -P pw.txt -t 4 -V rdp://10.10.10.40
-   ```
+## Account lockout
 
-2. Watch on Windows:
-
-   ```powershell
-   Get-Content C:\HomeLab\rdp-dr\logs\rdp_monitor.log -Wait -Tail 20
-   ```
-
-   You should see `SUSPECT: SourceIP=10.10.10.30 ...` lines as the threshold is crossed, paired with the Discord alert arriving in real time.
-
-## Account lockout — a known side effect
-
-Repeated failed authentication will trigger Windows' built-in account lockout policy and lock the targeted account temporarily. The monitor doesn't cause this — Windows does — but the monitor will fire its alert *before* the lockout because the threshold (5) is below the default lockout threshold (often 10). That's intentional: you want the alert to land before the user-impacting lockout happens, so an admin has a chance to intervene.
-
-To see / change the lockout policy:
-
-```powershell
-net accounts                  # current policy
-secpol.msc                    # Local Security Policy GUI -> Account Policies
-```
+Windows' account lockout policy counts failed logons independently of this pipeline. The threshold (5) sits below the usual lockout threshold (10) so the alert lands before the account is locked. The demo targets the decoy account `labuser`, so if repeated runs do lock something, it's an account nobody uses. Check the policy with `net accounts`.
 
 ## Next
 
-Phase 06 adds active response — the same detection now also drops a Windows Firewall block rule on the offender's IP, persisting the ban with expiration in JSON state.
+Phase 06 adds active response: the same detection also blocks the source IP at the Windows Firewall, with an expiring banlist.

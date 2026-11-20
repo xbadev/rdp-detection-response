@@ -1,13 +1,13 @@
 # Phase 01 — Baseline Security Posture
 
-Documented the default network security posture of the Windows endpoint before introducing any exposure. The point is to anchor every later change ("we enabled RDP, here's exactly what changed") against a known starting state, not against assumptions.
+Documented the default network security posture of a fresh Windows Server before introducing any exposure. The point is to anchor every later change ("we enabled RDP, here's exactly what changed") against a known starting state, not against assumptions.
 
 ## Environment
 
 | System | Role | IP |
 |---|---|---|
 | Kali | Attacker | `10.10.10.30` |
-| Windows | Target | `10.10.10.40` |
+| Windows Server 2025 (Desktop Experience) | Target | `10.10.10.40` |
 
 Both on Proxmox bridge `vmbr1` (`10.10.10.0/24`), no internet uplink on this bridge.
 
@@ -66,19 +66,39 @@ Get-NetFirewallRule -DisplayGroup 'File and Printer Sharing' |
     Format-Table DisplayName, Enabled, Direction, Action -Auto
 ```
 
-The `ICMPv4-In` rule exists but is disabled. That's why Kali's ping was dropped — not because there's no rule, but because the rule isn't enabled.
+The `ICMPv4-In` rule exists but is disabled. That's why Kali's ping was dropped: not because there's no rule, but because the rule isn't enabled.
+
+### 6. What IS allowed in by default
+
+"Default inbound = Block" doesn't mean nothing gets in. List the built-in allow rules that are already on:
+
+```powershell
+Get-NetFirewallRule -Enabled True -Direction Inbound -Action Allow |
+    Sort-Object DisplayGroup | Format-Table DisplayName, Profile -AutoSize
+```
+
+On Windows Server, expect **Windows Remote Management (HTTP-In)**: WinRM on TCP/5985 is enabled by default so the server can be managed remotely, and its Public-profile rule allows the local subnet. Confirm from Kali with `nmap -Pn -p 5985 10.10.10.40`. This lab leaves it alone (it's out of scope), but it belongs in the baseline: it's an authenticated remote-management service listening before anything else was configured.
+
+### 7. Which firewall profile the lab NIC is in
+
+```powershell
+Get-NetConnectionProfile | Format-Table InterfaceAlias, Name, NetworkCategory -AutoSize
+```
+
+The `vmbr1` NIC has no gateway, so Windows usually labels it an unidentified network and puts it in the **Public** profile. Rules created later in this lab use `-Profile Any`, so they apply regardless.
 
 ## Findings
 
 | Check | Result |
 |---|---|
-| Windows Firewall | Enabled, enforcing |
+| Windows Firewall | Enabled on all profiles |
 | Inbound default | `Block` |
 | Outbound default | `Allow` |
 | ICMP inbound | Rule exists, disabled |
-| External discoverability via ICMP | None |
+| Pre-enabled inbound services | WinRM (TCP/5985) from the local subnet |
+| RDP | Disabled |
 
-The endpoint has a secure default posture. Any future reachability must be the result of deliberate configuration change — not default behavior. That makes Phase 02 (scoped ICMP) and Phase 03 (RDP exposure) attributable: we can point at a specific firewall change for every gain in attack surface.
+The baseline is mostly closed, with one remote-management service on by default. Every later gain in attack surface (Phase 02 ICMP, Phase 03 RDP) is attributable to a specific, deliberate change.
 
 ## Next
 

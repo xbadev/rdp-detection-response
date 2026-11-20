@@ -1,13 +1,13 @@
 # Phase 03 — Remote Access Attack Surface (RDP)
 
-Enabled Remote Desktop on the Windows endpoint. RDP was chosen because it's the most-targeted authentication-bound service on Windows in the wild — making it the most realistic surface for the detection and response work in later phases.
+Enabled Remote Desktop on the Windows Server target. RDP is the most-attacked authentication-bound service on internet-facing Windows servers, which makes it the realistic surface for the detection and response phases that follow.
 
 ## Environment
 
 | System | Role | IP |
 |---|---|---|
 | Kali | Attacker | `10.10.10.30` |
-| Windows | Target | `10.10.10.40` |
+| Windows Server 2025 | Target | `10.10.10.40` |
 
 Starting state: Phase 02 validated source-scoped firewall rules with ICMP. No TCP services exposed yet.
 
@@ -21,11 +21,11 @@ From Kali:
 nmap -Pn -p- --min-rate 1000 10.10.10.40
 ```
 
-Expected: no open TCP ports (or only what's incidentally listening, e.g. nothing on a hardened baseline).
+Expected: no RDP. On Windows Server you will likely see **5985/tcp (WinRM)** open: Server enables PowerShell remoting by default and allows it from the local subnet. That's a real finding in its own right (see the Phase 01 baseline). It isn't part of this lab's attack surface, but don't call the box "nothing open" if it isn't.
 
 ### 2. Enable Remote Desktop
 
-In PowerShell on the Windows endpoint:
+In an elevated PowerShell on the server:
 
 ```powershell
 # Enable RDP.
@@ -36,11 +36,11 @@ Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' 
 Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
 ```
 
-Equivalent via the GUI: **Settings → System → Remote Desktop → Enable**.
+GUI equivalents: **Server Manager → Local Server → Remote Desktop**, or option 7 in `sconfig`. Network Level Authentication stays on (the default); the detection phases account for how NLA changes the logged LogonType.
 
 ### 3. Post-exposure scan
 
-Repeat the nmap scan. Expected: TCP/3389 open and identified as `ms-wbt-server`.
+Repeat the nmap scan. Expected: TCP/3389 open and identified as `ms-wbt-server` (plus 5985 if WinRM is still on).
 
 ### 4. Confirm reachability
 
@@ -51,16 +51,24 @@ Use `mstsc` (built-in Remote Desktop Connection client). Authenticate with a val
 #### From Kali
 
 ```bash
-xfreerdp /v:10.10.10.40 /u:bader /cert:ignore
+xfreerdp3 /v:10.10.10.40 /u:<your-admin-account> /cert:ignore   # older Kali: xfreerdp
 ```
 
 Expected: prompt for password, then desktop session.
+
+### 5. Create the decoy account the demo attacks
+
+```powershell
+net user labuser 'Choose-A-Long-Unique-Passw0rd!' /add
+```
+
+A standard user, not an admin, never logged into. The attack script targets it so lockouts from repeated demo runs never hit a real account. (Optional: failures against a nonexistent username are logged as 4625 too.)
 
 ## Findings
 
 | Check | Pre-RDP | Post-RDP |
 |---|---|---|
-| nmap full TCP scan | Nothing open | 3389 open |
+| nmap full TCP scan | No 3389 (5985 WinRM on Server) | 3389 open |
 | Authenticated session from Windows client | n/a | ✅ |
 | Authenticated session from Kali (`xfreerdp`) | n/a | ✅ |
 
