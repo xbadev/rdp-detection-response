@@ -1,14 +1,16 @@
 <#
 .SYNOPSIS
-    Reset the RDP lab state for a clean demo run.
+    Reset runtime state for a clean demo run.
 
 .DESCRIPTION
-    - Removes all firewall rules created by the responder (HomeLab-RDPBan-*)
-    - Empties the banlist JSON
-    - Truncates the log file
-    - Leaves config, secrets, scripts, and the scheduled task in place
+    - Removes every responder firewall rule (HomeLab-RDPBan-*)
+    - Empties the banlist and the Phase 05 alert cooldowns
+    - Clears the lab log
+    - Records the reset time, so detection ignores failures from before it
+      (otherwise the previous attack's events, still inside the MinutesBack
+      window, would count toward the next run)
 
-    Equivalent of 'make reset' in the SSH lab.
+    Config, secrets, scripts, and scheduled tasks are left alone.
 #>
 
 [CmdletBinding()]
@@ -17,28 +19,15 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-            ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "ERROR: Reset.ps1 must be run elevated." -ForegroundColor Red
-    exit 1
-}
+Import-Module 'C:\HomeLab\rdp-dr\lib\RdpDetection.psm1' -Force
+Assert-Administrator
+$cfg = Import-LabConfig
 
-$cfg = Import-PowerShellDataFile -Path "$PSScriptRoot\lab.config.psd1"
+Remove-AllLabFirewallRules
+Save-LabBanList -List @()
+if (Test-Path $cfg.AlertCooldownPath) { Remove-Item $cfg.AlertCooldownPath -Force }
+if (Test-Path $cfg.LogPath) { Clear-Content $cfg.LogPath }
+(Get-Date).ToString('s') | Set-Content -Path (Join-Path $cfg.StateDir 'last_reset.txt') -Encoding ASCII
+Write-LabLog "RESET: bans, cooldowns, and log cleared; earlier failures will be ignored"
 
-Write-Host "==> removing firewall rules: $($cfg.FirewallRulePrefix)-*"
-Get-NetFirewallRule -DisplayName "$($cfg.FirewallRulePrefix)-*" -ErrorAction SilentlyContinue |
-    Remove-NetFirewallRule -ErrorAction SilentlyContinue | Out-Null
-
-Write-Host "==> clearing banlist: $($cfg.BanListPath)"
-if (Test-Path $cfg.BanListPath) {
-    '[]' | Set-Content -Path $cfg.BanListPath -Encoding UTF8
-}
-
-Write-Host "==> truncating log: $($cfg.LogPath)"
-if (Test-Path $cfg.LogPath) {
-    Clear-Content -Path $cfg.LogPath
-}
-
-Write-Host ""
-Write-Host "Reset complete. Ready for a clean demo run." -ForegroundColor Green
+Write-Host "Reset complete: no bans, no cooldowns, empty log. Ready for a demo run." -ForegroundColor Green

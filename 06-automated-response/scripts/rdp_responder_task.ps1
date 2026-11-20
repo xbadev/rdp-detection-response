@@ -1,16 +1,12 @@
 <#
 .SYNOPSIS
-    Register the Phase 06 responder as an event-triggered scheduled task.
+    (Re-)register the Phase 06 responder as an event-triggered task.
 
 .DESCRIPTION
-    Install.ps1 already does this — this script exists for two reasons:
-    (1) re-registering after manually editing the responder, without rerunning
-    full install; (2) demonstrating the task setup standalone, which is part of
-    the Phase 06 narrative for an interview walkthrough.
-
-    The task fires on every Security/4625 event, so attacker-to-block latency
-    is ~2-5 seconds rather than the 2-minute polling interval the original
-    repo used.
+    Install.ps1 already does this. Use this after editing the installed
+    responder, or to walk through the task setup on its own. The trigger
+    fires on every Security 4625; queued runs guarantee the full burst of an
+    attack is evaluated (see Register-LabEventTask in Lib\RdpDetection.psm1).
 #>
 
 [CmdletBinding()]
@@ -19,50 +15,12 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-            ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) { Write-Host "Run elevated." -ForegroundColor Red; exit 1 }
+Import-Module 'C:\HomeLab\rdp-dr\lib\RdpDetection.psm1' -Force
+Assert-Administrator
+$cfg = Import-LabConfig
 
-$configPath = if ($env:RDP_LAB_CONFIG) { $env:RDP_LAB_CONFIG }
-              else { 'C:\HomeLab\rdp-dr\config\lab.config.psd1' }
+$scriptPath = Join-Path $cfg.InstallRoot 'scripts\rdp_bruteforce_responder.ps1'
+Register-LabEventTask -TaskName $cfg.ResponderTaskName -ScriptPath $scriptPath `
+    -Description 'RDP lab Phase 06: detect, block, alert; runs on every Security 4625'
 
-$cfg = Import-PowerShellDataFile -Path $configPath
-
-$taskName = $cfg.ResponderTaskName
-$script   = "$($cfg.InstallRoot)\scripts\rdp_bruteforce_responder.ps1"
-
-Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue |
-    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-
-$action = New-ScheduledTaskAction `
-    -Execute 'PowerShell.exe' `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`""
-
-$eventXml = @'
-<QueryList>
-  <Query Id="0" Path="Security">
-    <Select Path="Security">*[System[(EventID=4625)]]</Select>
-  </Query>
-</QueryList>
-'@
-
-$cimTrigger = Get-CimClass -Namespace 'Root\Microsoft\Windows\TaskScheduler' -ClassName 'MSFT_TaskEventTrigger'
-$trigger = New-CimInstance -CimClass $cimTrigger -ClientOnly
-$trigger.Enabled      = $true
-$trigger.Subscription = $eventXml
-
-$principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-$settings  = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
-    -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
-
-Register-ScheduledTask `
-    -TaskName  $taskName `
-    -Action    $action `
-    -Trigger   $trigger `
-    -Principal $principal `
-    -Settings  $settings `
-    -Force | Out-Null
-
-Write-Host "Registered event-triggered task: $taskName" -ForegroundColor Green
-Write-Host "Trigger: every Security/4625 event"
+Write-Host "Registered '$($cfg.ResponderTaskName)': runs $scriptPath on every Security 4625." -ForegroundColor Green

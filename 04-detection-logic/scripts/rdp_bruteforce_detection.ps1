@@ -1,29 +1,22 @@
 <#
 .SYNOPSIS
-    Phase 04 — interactive RDP brute-force detection.
+    Phase 04 - on-demand RDP brute-force detection (read-only).
 
 .DESCRIPTION
-    Standalone, on-demand version of the detection logic. Pulls recent
-    Event ID 4625 / LogonType 3 records, groups by source IP + target user,
-    and prints any groups that exceed the threshold.
-
-    This script does NOT alert and does NOT respond — it's the diagnostic
-    /demo tool. Phase 05 (monitor) and Phase 06 (responder) reuse the same
-    underlying functions from Lib\RdpDetection.psm1.
+    Pulls recent Security 4625 failures (LogonType 3 or 10), groups them by
+    (source IP, target user), and prints the groups at or over the threshold.
+    No alerting, no firewall changes: this is the diagnostic tool. The
+    Phase 05 monitor and Phase 06 responder call the same module functions.
 
 .PARAMETER MinutesBack
-    Time window. Defaults to lab config (typically 2).
+    Look-back window. Default: MinutesBack from lab config.
 
 .PARAMETER Threshold
-    Failure count to flag. Defaults to lab config (typically 5).
+    Failures needed to flag a group. Default: Threshold from lab config.
 
 .EXAMPLE
-    PS C:\> .\rdp_bruteforce_detection.ps1
-    PS C:\> .\rdp_bruteforce_detection.ps1 -MinutesBack 10 -Threshold 3
-
-.NOTES
-    Must run elevated. Reads C:\HomeLab\rdp-dr\config\lab.config.psd1
-    (or $env:RDP_LAB_CONFIG override).
+    .\rdp_bruteforce_detection.ps1
+    .\rdp_bruteforce_detection.ps1 -MinutesBack 30 -Threshold 3
 #>
 
 [CmdletBinding()]
@@ -35,12 +28,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Resolve module path: production path first, then repo path during dev.
-$modulePaths = @(
-    'C:\HomeLab\rdp-dr\lib\RdpDetection.psm1',
-    (Join-Path $PSScriptRoot '..\..\Lib\RdpDetection.psm1')
-)
-$module = $modulePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+$module = @('C:\HomeLab\rdp-dr\lib\RdpDetection.psm1',
+            (Join-Path $PSScriptRoot '..\..\Lib\RdpDetection.psm1')) |
+          Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $module) {
     Write-Host "ERROR: RdpDetection.psm1 not found. Run Install.ps1 first." -ForegroundColor Red
     exit 2
@@ -49,36 +39,34 @@ Import-Module $module -Force
 
 Assert-Administrator
 $cfg = Import-LabConfig
-
 if (-not $MinutesBack) { $MinutesBack = $cfg.MinutesBack }
 if (-not $Threshold)   { $Threshold   = $cfg.Threshold }
 
-Write-Host "Looking back $MinutesBack minute(s); threshold $Threshold failures."
+Write-Host "Window: last $MinutesBack minute(s). Threshold: $Threshold failures per source IP + user."
 
-$records = Get-RdpFailedLogons -MinutesBack $MinutesBack
+$records = @(Get-RdpFailedLogons -MinutesBack $MinutesBack)
 if ($records.Count -eq 0) {
-    Write-Host "OK: No failed RDP logons in the window." -ForegroundColor Green
+    Write-Host "OK: no failed RDP/network logons with a source IP in the window." -ForegroundColor Green
     exit 0
 }
 
-$hits = Find-BruteForceBursts -Records $records -Threshold $Threshold
+$hits = @(Find-BruteForceBursts -Records $records -Threshold $Threshold)
 if ($hits.Count -eq 0) {
-    Write-Host "OK: $($records.Count) failure(s) seen, but no source crossed the threshold."
+    Write-Host "OK: $($records.Count) failure(s) in the window; no source/user pair reached $Threshold."
+    $records | Group-Object IpAddress, TargetUser | Sort-Object Count -Descending |
+        Select-Object Count, Name | Format-Table -AutoSize
     exit 0
 }
 
 Write-Host ""
-Write-Host "SUSPECT: $($hits.Count) source/user pair(s) above threshold." -ForegroundColor Red
+Write-Host "SUSPECT: $($hits.Count) source/user pair(s) at or over the threshold." -ForegroundColor Red
 foreach ($h in $hits) {
     Write-Host ""
-    Write-Host "Source IP:        $($h.SourceIp)"
-    Write-Host "Target User:      $($h.TargetUser)"
-    Write-Host "Failed Attempts:  $($h.Count)"
-    Write-Host "First seen:       $($h.FirstSeen)"
-    Write-Host "Last seen:        $($h.LastSeen)"
-
-    $h.Records |
-        Sort-Object TimeCreated -Descending |
-        Select-Object -First 5 TimeCreated, IpAddress, TargetUser, Status, SubStatus, Workstation |
+    Write-Host ("Source IP:     {0}" -f $h.SourceIp)
+    Write-Host ("Target user:   {0}" -f $h.TargetUser)
+    Write-Host ("Failures:      {0}" -f $h.Count)
+    Write-Host ("First / last:  {0}  /  {1}" -f $h.FirstSeen, $h.LastSeen)
+    $h.Records | Sort-Object TimeCreated -Descending | Select-Object -First 5 `
+        TimeCreated, IpAddress, TargetUser, LogonType, Status, SubStatus, Workstation |
         Format-Table -AutoSize
 }

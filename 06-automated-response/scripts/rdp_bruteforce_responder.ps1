@@ -1,36 +1,31 @@
 <#
 .SYNOPSIS
-    Phase 06 — RDP brute-force responder. Detects, blocks, alerts.
+    Phase 06 - RDP brute-force responder: detect, block, alert.
 
 .DESCRIPTION
-    Each invocation:
-      1. Loads config (LabMode, paths, threshold, ban duration).
-      2. Prunes expired bans (removes stale firewall rules).
-      3. Pulls recent Event ID 4625 / LogonType 3 events.
-      4. For any source IP over threshold:
-           - Skip if already banned (no extension)
-           - Skip if allowlisted
-           - In production mode (LabMode=$false): skip private/local IPs
-           - In lab mode (LabMode=$true): block private IPs too — needed
-             for the lab because Kali (10.10.10.30) is private
-         Then create a Windows Firewall block rule on TCP/3389 and post
-         to Discord.
-      5. Persist updated banlist.
+    Run by the event-triggered scheduled task on every Security 4625. Each run:
+      1. Prunes expired bans (removes their firewall rules).
+      2. Reads recent 4625 / LogonType 3+10 failures.
+      3. For each (source IP, user) at or over the threshold:
+           allowlisted               -> skip, log
+           private IP and !LabMode   -> skip, log
+           already banned            -> skip, log (bans are not extended)
+           otherwise                 -> firewall block on TCP/3389, record the
+                                        ban with an expiry, post to the webhook
+      4. Saves the banlist.
 
-    Designed to be invoked by an event-triggered scheduled task firing on
-    Security/4625, so attacker-to-ban latency is a few seconds.
+    Idempotent: a burst of events runs this several times (the task queues
+    them), and every run after the first finds the IP already banned.
 
 .PARAMETER ClearBans
-    Operator helper: remove every HomeLab-RDPBan-* rule and reset banlist.
-    Same effect as Reset.ps1 from the repo root. Kept here for backwards
-    compatibility with the original script's interface.
+    Remove every lab firewall rule and empty the banlist (same as Reset.ps1,
+    minus the log/cooldown reset).
 
 .PARAMETER TestWebhook
-    Send a test alert and exit.
+    Send a test message and exit.
 
 .NOTES
-    Reads config from $env:RDP_LAB_CONFIG (set by Install.ps1) or falls
-    back to C:\HomeLab\rdp-dr\config\lab.config.psd1.
+    Must run elevated. Reads C:\HomeLab\rdp-dr\config\lab.config.psd1.
 #>
 
 [CmdletBinding()]
@@ -45,11 +40,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$modulePaths = @(
-    'C:\HomeLab\rdp-dr\lib\RdpDetection.psm1',
-    (Join-Path $PSScriptRoot '..\..\Lib\RdpDetection.psm1')
-)
-$module = $modulePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+$module = @('C:\HomeLab\rdp-dr\lib\RdpDetection.psm1',
+            (Join-Path $PSScriptRoot '..\..\Lib\RdpDetection.psm1')) |
+          Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $module) {
     Write-Host "ERROR: RdpDetection.psm1 not found. Run Install.ps1 first." -ForegroundColor Red
     exit 2
@@ -58,7 +51,6 @@ Import-Module $module -Force
 
 Assert-Administrator
 $cfg = Import-LabConfig
-
 if (-not $MinutesBack) { $MinutesBack = $cfg.MinutesBack }
 if (-not $Threshold)   { $Threshold   = $cfg.Threshold }
 if (-not $BanMinutes)  { $BanMinutes  = $cfg.BanMinutes }
@@ -67,63 +59,60 @@ if (-not $BanMinutes)  { $BanMinutes  = $cfg.BanMinutes }
 if ($ClearBans) {
     Remove-AllLabFirewallRules
     Save-LabBanList -List @()
-    Write-LabLog "CLEAR_BANS: operator removed all rules + banlist via -ClearBans"
-    Write-Host "OK: cleared all bans + firewall rules." -ForegroundColor Green
+    Write-LabLog "CLEAR_BANS: all lab firewall rules and the banlist removed by operator"
+    Write-Host "OK: cleared all bans and firewall rules." -ForegroundColor Green
     exit 0
 }
 
 if ($TestWebhook) {
-    Send-LabWebhook ":white_check_mark: TEST: RDP responder webhook is alive on $($cfg.TargetIp)."
-    Write-Host "Test alert sent." -ForegroundColor Green
-    exit 0
+    $ok = Send-LabWebhook ":white_check_mark: TEST: RDP responder on $($cfg.TargetIp) can reach this webhook."
+    if ($ok) { Write-Host "Test alert sent." -ForegroundColor Green; exit 0 }
+    Write-Host "Webhook failed; see $($cfg.LogPath)" -ForegroundColor Red
+    exit 1
 }
 
-# --- Prune expired bans on every run --------------------------------
-$banList = Read-LabBanList
-$banList = Remove-ExpiredBans -BanList $banList
+# --- 1. Prune expired bans -----------------------------------------
+$banList = @(Remove-ExpiredBans -BanList @(Read-LabBanList))
 Save-LabBanList -List $banList
 
-# --- Detection ------------------------------------------------------
-$records = Get-RdpFailedLogons -MinutesBack $MinutesBack
+# --- 2. Detection --------------------------------------------------
+$records = @(Get-RdpFailedLogons -MinutesBack $MinutesBack)
 if ($records.Count -eq 0) { exit 0 }
 
-$hits = Find-BruteForceBursts -Records $records -Threshold $Threshold
+$hits = @(Find-BruteForceBursts -Records $records -Threshold $Threshold)
 if ($hits.Count -eq 0) {
-    Write-LabLog "OK: $($records.Count) failure(s), none over threshold ($Threshold/${MinutesBack}m)"
+    Write-LabLog "OK: $($records.Count) failure(s) in ${MinutesBack}m, none at threshold $Threshold"
     exit 0
 }
 
-$allow = Get-LabAllowList
+# --- 3. Decide per offender ----------------------------------------
+$allow = @(Get-LabAllowList)
 
 foreach ($h in $hits) {
-    $ip    = $h.SourceIp
-    $user  = $h.TargetUser
-    $count = $h.Count
+    $ip, $user, $count = $h.SourceIp, $h.TargetUser, $h.Count
 
-    # 1. Allowlist always wins.
     if ($allow -contains $ip) {
         Write-LabLog "SKIP_ALLOWLIST: SourceIP=$ip User=$user Failures=$count"
         continue
     }
 
-    # 2. Private/local — only skip in production mode.
     if ((-not $cfg.LabMode) -and (Test-IsPrivateOrLocalIp -Ip $ip)) {
-        Write-LabLog "SKIP_PRIVATE_OR_LOCAL: SourceIP=$ip User=$user Failures=$count (LabMode=`$false)"
+        Write-LabLog "SKIP_PRIVATE_OR_LOCAL: SourceIP=$ip User=$user Failures=$count (LabMode is off)"
         continue
     }
 
-    # 3. Already banned? Don't extend.
-    $existing = $banList | Where-Object { $_.ip -eq $ip } | Select-Object -First 1
-    if ($null -ne $existing) {
-        $oldExp = [datetime]$existing.expiresAt
-        Write-LabLog "ALREADY_BANNED_IGNORE: SourceIP=$ip User=$user Failures=$count Until=$($oldExp.ToString('s'))"
+    $existing = @($banList | Where-Object { $_.ip -eq $ip })
+    if ($existing.Count -gt 0) {
+        Write-LabLog "ALREADY_BANNED: SourceIP=$ip User=$user Failures=$count Until=$($existing[0].expiresAt)"
         continue
     }
 
-    # 4. Apply the ban.
-    $now     = Get-Date
-    $expires = $now.AddMinutes($BanMinutes)
+    if (-not (Block-LabIp -Ip $ip)) {
+        # Don't record a ban that isn't actually enforced; the next run retries.
+        continue
+    }
 
+    $expires = (Get-Date).AddMinutes($BanMinutes)
     $banList += [pscustomobject]@{
         ip        = $ip
         user      = $user
@@ -132,19 +121,16 @@ foreach ($h in $hits) {
         lastSeen  = $h.LastSeen.ToString('s')
         expiresAt = $expires.ToString('s')
     }
+    Save-LabBanList -List $banList   # persist before the (slower) webhook call
 
-    Block-LabIp -Ip $ip
-
-    Write-LabLog "BAN: SourceIP=$ip User=$user Failures=$count Window=${MinutesBack}m Until=$($expires.ToString('s'))"
+    $latency = [int]((Get-Date) - $h.LastSeen).TotalSeconds
+    Write-LabLog "BAN: SourceIP=$ip User=$user Failures=$count Window=${MinutesBack}m Until=$($expires.ToString('s')) SecondsAfterLastFailure=$latency"
 
     $msg = ":no_entry: **RDP attacker blocked**`n" +
            "Host: ``$($cfg.TargetIp)```n" +
            "Banned IP: ``$ip```n" +
            "Target user: ``$user```n" +
            "Failures: ``$count`` in ``${MinutesBack}m```n" +
-           "Block duration: ``${BanMinutes}m```n" +
-           "Expires: ``$($expires.ToString('s'))``"
-    Send-LabWebhook $msg
+           "Blocked for: ``${BanMinutes}m`` (until ``$($expires.ToString('s'))``)"
+    [void](Send-LabWebhook $msg)
 }
-
-Save-LabBanList -List $banList

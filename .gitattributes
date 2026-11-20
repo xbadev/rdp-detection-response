@@ -8,6 +8,9 @@
 *.psm1  text eol=lf
 *.psd1  text eol=lf
 
+# Shell scripts run on Kali: a CR at the end of the shebang breaks them.
+*.sh    text eol=lf
+
 # Markdown / config: LF preferred (renders identically on both platforms).
 *.md    text eol=lf
 *.txt   text eol=lf

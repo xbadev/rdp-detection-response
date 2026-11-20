@@ -1,51 +1,54 @@
 @{
     # ============================================================
-    # RDP Detection & Response — Lab Configuration
+    # RDP Detection & Response - Lab Configuration
     # ============================================================
-    # Real version path: C:\HomeLab\rdp-dr\config\lab.config.psd1
-    # Permissions:       SYSTEM + Administrators only (set by Install.ps1)
-    # Loaded by:         every script and the event-triggered task
+    # Installed to:  C:\HomeLab\rdp-dr\config\lab.config.psd1  (by Install.ps1)
+    # Read by:       every script, via Import-LabConfig in Lib\RdpDetection.psm1
+    # Edit the INSTALLED copy to change behavior; changes apply on the next
+    # event, no restart needed. Values must be literals (psd1 rule).
     # ============================================================
 
-    # --- Network ----------------------------------------------------
-    # Proxmox vmbr1 internal lab subnet.
-    InternalSubnet = '10.10.10.0/24'
+    # --- Identity --------------------------------------------------
+    # This host's lab IP (vmbr1). Shown in alerts.
+    TargetIp = '10.10.10.40'
 
-    # Static IPs on vmbr1.
-    TargetIp   = '10.10.10.40'   # Windows endpoint (this host)
-    AttackerIp = '10.10.10.30'   # Kali
+    # --- Detection -------------------------------------------------
+    # Act when this many failed RDP logons (Security 4625, LogonType 3/10)
+    # from one source IP against one account land within MinutesBack.
+    # 5 sits below the default account-lockout threshold (10), so the
+    # attacker is cut off at the network before the account gets locked.
+    Threshold   = 5
+    MinutesBack = 2
 
-    # --- Detection tuning ------------------------------------------
-    # Trigger response when this many failed RDP logons (Event ID 4625,
-    # LogonType 3) come from a single source IP within MinutesBack.
-    Threshold    = 5
-    MinutesBack  = 2
+    # --- Response --------------------------------------------------
+    # Firewall block duration for a banned IP (minutes).
+    BanMinutes = 30
 
-    # How long a banned IP is firewalled out for (minutes).
-    BanMinutes   = 30
+    # Phase 05 (alert-only monitor): minimum minutes between alerts for the
+    # same source IP. Without it, every 4625 during an attack re-alerts.
+    AlertCooldownMinutes = 10
 
-    # --- Mode ------------------------------------------------------
-    # LabMode = $true   -> private/local IPs ARE banned (Kali at 10.10.10.30 is private!)
-    # LabMode = $false  -> private/local IPs SKIPPED (production behavior)
-    # Default is $true so a fresh demo actually bans the lab attacker.
+    # LabMode = $true  -> private/local source IPs CAN be banned.
+    #                     Needed in the lab: Kali (10.10.10.30) is a private IP.
+    # LabMode = $false -> private/local IPs are skipped, the usual production
+    #                     default that stops a responder banning its own network.
     LabMode = $true
 
-    # --- Paths -----------------------------------------------------
-    # Install.ps1 creates these and locks them down.
-    InstallRoot   = 'C:\HomeLab\rdp-dr'
-    LogPath       = 'C:\HomeLab\rdp-dr\logs\rdp_monitor.log'
-    StateDir      = 'C:\HomeLab\rdp-dr\state'
-    BanListPath   = 'C:\HomeLab\rdp-dr\state\rdp_banlist.json'
-    AllowListPath = 'C:\HomeLab\rdp-dr\config\rdp_allowlist.txt'
-    SecretsDir    = 'C:\HomeLab\rdp-dr\secrets'
-    WebhookFile   = 'C:\HomeLab\rdp-dr\secrets\discord_webhook_url.txt'
+    # --- Paths (created and locked down by Install.ps1) ------------
+    InstallRoot       = 'C:\HomeLab\rdp-dr'
+    LogPath           = 'C:\HomeLab\rdp-dr\logs\rdp_monitor.log'
+    StateDir          = 'C:\HomeLab\rdp-dr\state'
+    BanListPath       = 'C:\HomeLab\rdp-dr\state\rdp_banlist.json'
+    AlertCooldownPath = 'C:\HomeLab\rdp-dr\state\alert_cooldowns.json'
+    AllowListPath     = 'C:\HomeLab\rdp-dr\config\rdp_allowlist.txt'
+    SecretsDir        = 'C:\HomeLab\rdp-dr\secrets'
+    WebhookFile       = 'C:\HomeLab\rdp-dr\secrets\discord_webhook_url.txt'
 
-    # --- Firewall --------------------------------------------------
-    # Prefix for firewall rules created by the responder. Easy to enumerate / clear.
+    # --- Names -----------------------------------------------------
+    # Prefix of every firewall rule the responder creates (easy to list/clear).
     FirewallRulePrefix = 'HomeLab-RDPBan'
 
-    # --- Scheduled task --------------------------------------------
-    # Names of the event-triggered tasks. Install.ps1 registers these.
-    DetectorTaskName  = 'HomeLab-RDP-Detector'
-    ResponderTaskName = 'HomeLab-RDP-Responder'
+    # Event-triggered scheduled tasks.
+    ResponderTaskName = 'HomeLab-RDP-Responder'   # Phase 06, registered by Install.ps1
+    MonitorTaskName   = 'HomeLab-RDP-Monitor'     # Phase 05, optional alert-only mode
 }
