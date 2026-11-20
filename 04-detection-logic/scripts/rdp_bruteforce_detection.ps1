@@ -1,101 +1,83 @@
-# Detect repeated failed network logons (Event ID 4625) over a short time window
-# Lab purpose: identify suspicious RDP authentication abuse patterns using native Windows logs
+<#
+.SYNOPSIS
+    Phase 04 — interactive RDP brute-force detection.
 
-# $MinutesBack = 2
-# $Threshold   = 5
+.DESCRIPTION
+    Standalone, on-demand version of the detection logic. Pulls recent
+    Event ID 4625 / LogonType 3 records, groups by source IP + target user,
+    and prints any groups that exceed the threshold.
 
-# Add configruable parameters (-MinutesBack, -Threshold)
+    This script does NOT alert and does NOT respond — it's the diagnostic
+    /demo tool. Phase 05 (monitor) and Phase 06 (responder) reuse the same
+    underlying functions from Lib\RdpDetection.psm1.
+
+.PARAMETER MinutesBack
+    Time window. Defaults to lab config (typically 2).
+
+.PARAMETER Threshold
+    Failure count to flag. Defaults to lab config (typically 5).
+
+.EXAMPLE
+    PS C:\> .\rdp_bruteforce_detection.ps1
+    PS C:\> .\rdp_bruteforce_detection.ps1 -MinutesBack 10 -Threshold 3
+
+.NOTES
+    Must run elevated. Reads C:\HomeLab\rdp-dr\config\lab.config.psd1
+    (or $env:RDP_LAB_CONFIG override).
+#>
+
+[CmdletBinding()]
 param(
-    [int]$MinutesBack = 2,
-    [int]$Threshold   = 5
+    [int]$MinutesBack,
+    [int]$Threshold
 )
 
-$StartTime = (Get-Date).AddMinutes(-$MinutesBack)
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-# Must run elevated to read the Security log
-$IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
-).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-if (-not $IsAdmin) {
-    Write-Host "ERROR: Run PowerShell as Administrator to read the Security log." -ForegroundColor Red
-    exit 1
-}
-
-# Pull recent 4625 events from the Security log
-try {
-    $events = Get-WinEvent -FilterHashtable @{
-        LogName   = 'Security'
-        Id        = 4625
-        StartTime = $StartTime
-    } -ErrorAction Stop
-}
-catch {
-    # "No events were found..." is a normal outcome when the time window is quiet
-    if ($_.Exception.Message -match 'No events were found') {
-        Write-Host "OK: No failed logons (4625) found in the last $MinutesBack minutes."
-        exit 0
-    }
-
-    Write-Host "ERROR: Failed to query Security log (4625). Details: $($_.Exception.Message)" -ForegroundColor Red
+# Resolve module path: production path first, then repo path during dev.
+$modulePaths = @(
+    'C:\HomeLab\rdp-dr\lib\RdpDetection.psm1',
+    (Join-Path $PSScriptRoot '..\..\Lib\RdpDetection.psm1')
+)
+$module = $modulePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $module) {
+    Write-Host "ERROR: RdpDetection.psm1 not found. Run Install.ps1 first." -ForegroundColor Red
     exit 2
 }
+Import-Module $module -Force
 
+Assert-Administrator
+$cfg = Import-LabConfig
 
+if (-not $MinutesBack) { $MinutesBack = $cfg.MinutesBack }
+if (-not $Threshold)   { $Threshold   = $cfg.Threshold }
 
-# Extract only the fields we need from the event XML
-$records = foreach ($e in $events) {
-    $xml = [xml]$e.ToXml()
+Write-Host "Looking back $MinutesBack minute(s); threshold $Threshold failures."
 
-    $data = @{}
-    foreach ($d in $xml.Event.EventData.Data) {
-        $data[$d.Name] = $d.'#text'
-    }
-
-    # LogonType 3 = network logon (common for failed RDP auth attempts)
-    if ($data['LogonType'] -ne '3') { continue }
-
-    $ip   = $data['IpAddress']
-    $user = $data['TargetUserName']
-
-    # Skip empty / localhost style entries
-    if ([string]::IsNullOrWhiteSpace($ip) -or $ip -eq '-' -or $ip -eq '::1' -or $ip -eq '127.0.0.1') { continue }
-
-    [pscustomobject]@{
-        TimeCreated   = $e.TimeCreated
-        IpAddress     = $ip
-        TargetUser    = $user
-        LogonType     = $data['LogonType']
-        Status        = $data['Status']
-        SubStatus     = $data['SubStatus']
-        Workstation   = $data['WorkstationName']
-    }
-}
-
-# Group and flag suspicious bursts
-$hits = $records |
-    Group-Object IpAddress, TargetUser |
-    Where-Object { $_.Count -ge $Threshold } |
-    Sort-Object Count -Descending
-
-if (-not $hits) {
-    Write-Host "OK: No suspicious bursts found (>= $Threshold failures within last $MinutesBack minutes). Checked since $StartTime"
+$records = Get-RdpFailedLogons -MinutesBack $MinutesBack
+if ($records.Count -eq 0) {
+    Write-Host "OK: No failed RDP logons in the window." -ForegroundColor Green
     exit 0
 }
 
-Write-Host "SUSPECT: Possible RDP brute-force pattern detected (>= $Threshold failures within last $MinutesBack minutes):"
-$hits | ForEach-Object {
-    $parts = $_.Name -split ',\s*'
-    $ip = $parts[0]
-    $user = $parts[1]
+$hits = Find-BruteForceBursts -Records $records -Threshold $Threshold
+if ($hits.Count -eq 0) {
+    Write-Host "OK: $($records.Count) failure(s) seen, but no source crossed the threshold."
+    exit 0
+}
 
+Write-Host ""
+Write-Host "SUSPECT: $($hits.Count) source/user pair(s) above threshold." -ForegroundColor Red
+foreach ($h in $hits) {
     Write-Host ""
-    Write-Host "Source IP: $ip"
-    Write-Host "Target User: $user"
-    Write-Host "Failed Attempts: $($_.Count)"
+    Write-Host "Source IP:        $($h.SourceIp)"
+    Write-Host "Target User:      $($h.TargetUser)"
+    Write-Host "Failed Attempts:  $($h.Count)"
+    Write-Host "First seen:       $($h.FirstSeen)"
+    Write-Host "Last seen:        $($h.LastSeen)"
 
-    # Show the most recent few events for context
-    $records |
-        Where-Object { $_.IpAddress -eq $ip -and $_.TargetUser -eq $user } |
+    $h.Records |
         Sort-Object TimeCreated -Descending |
         Select-Object -First 5 TimeCreated, IpAddress, TargetUser, Status, SubStatus, Workstation |
         Format-Table -AutoSize

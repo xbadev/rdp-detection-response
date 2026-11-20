@@ -1,0 +1,17 @@
+# Real config (template only is committed — none currently, but reserve)
+**/lab.config.local.psd1
+
+# Runtime artifacts
+**/logs/
+**/state/
+**/secrets/
+**/*.log
+**/rdp_banlist.json
+**/discord_webhook_url.txt
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

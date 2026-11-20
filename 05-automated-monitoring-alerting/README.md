@@ -1,85 +1,98 @@
-# Automated RDP Monitoring & Alerting
+# Phase 05 — Automated Monitoring & Alerting
 
-Automated the detection logic from Phase 04 into a continuous monitoring pipeline — the script runs on a recurring schedule via Task Scheduler, logs only suspicious activity, and delivers real-time alerts to a Discord webhook.
-
-## Scripts
+Same detection logic as Phase 04, but runs unattended via an event-triggered scheduled task and posts to a Discord webhook on threshold crossing. **Alert-only mode** — no firewall changes. Use this phase to demonstrate detection-and-notification before adding containment in Phase 06.
 
 | Script | Purpose |
-|--------|---------|
-| [`rdp_bruteforce_monitor.ps1`](scripts/rdp_bruteforce_monitor.ps1) | Monitors Event ID 4625 for RDP brute-force patterns, logs findings, sends alerts |
-| [`rdp_monitor_task.ps1`](scripts/rdp_monitor_task.ps1) | Registers the monitoring script as a scheduled task with elevated privileges |
+|---|---|
+| [`scripts/rdp_bruteforce_monitor.ps1`](scripts/rdp_bruteforce_monitor.ps1) | The monitor itself — checks recent 4625s, posts to webhook on threshold |
+| [`scripts/rdp_monitor_task.ps1`](scripts/rdp_monitor_task.ps1) | Registers the monitor as an event-triggered task |
 
-## Environment
+## Architecture — event-triggered, not polling
 
-| System  | Role     | IP Address     |
-|---------|----------|----------------|
-| Kali VM | Attacker | 192.168.56.30  |
-| Win VM  | Target   | 192.168.56.40  |
+The original lab used a 2-minute interval task. That's a 2-minute worst-case latency from attack to alert. This refresh uses a **Task Scheduler event trigger** firing on every Security log entry of Event ID 4625:
 
-Starting point: Phase 04 validated the detection logic manually — this phase makes it run unattended.
+```xml
+<QueryList>
+  <Query Id="0" Path="Security">
+    <Select Path="Security">*[System[(EventID=4625)]]</Select>
+  </Query>
+</QueryList>
+```
 
----
+When LSASS writes a 4625 event, Task Scheduler kicks off the monitor within ~2-5 seconds. The monitor then evaluates the last `MinutesBack` minutes of failures (not just the one that triggered it), so a single event doesn't fire an alert — only crossing the threshold does.
 
-## Webhook Alerting
+This trades polling latency for slightly higher CPU on heavy attacks (one PowerShell process per event), which is a fine trade for a lab. In production with millions of events you'd subscribe via WMI or ETW instead.
 
-Alerts are delivered to a Discord channel via webhook, simulating how enterprise SOCs forward events to Slack, Teams, or incident management platforms.
+## Webhook delivery
 
-Tested webhook connectivity before enabling full monitoring:
+Discord-compatible — any service accepting `POST {"content": "..."}` (Discord, Slack incoming webhooks, custom endpoints).
 
-![Webhook test command](evidence/testing-discord-webhook-connectivity-command.png)
+The webhook URL is stored at `C:\HomeLab\rdp-dr\secrets\discord_webhook_url.txt`, ACL'd to SYSTEM and Administrators only by `Install.ps1`. The shared module reads it on demand — never embedded in code, never logged.
 
-![Discord test alert](evidence/discord-testing-alert-result.png)
+## Sample alert
 
-### Secret Management
+```
+🚨 RDP brute-force detected
+Host: 10.10.10.40
+Source IP: 10.10.10.30
+Target user: Administrator
+Failures: 5 in 2m
+Last seen: 2026-05-04T03:14:22
+```
 
-The webhook URL is stored in a separate secrets file, not embedded in the script. Default permissions were removed and access restricted to SYSTEM and Administrators only: [default permissions](evidence/webhook-url-default-file-permissions.png) · [remove inheritance](evidence/webhook-url-remove-inheritance-file-permission.png) · [final permissions](evidence/webhook-url-set-permissions-command-and-display-permissions.png)
+## Setup
 
----
+After running `Install.ps1` from the repo root (which only registers the Phase 06 responder task by default), if you want **alert-only** mode without containment:
 
-## Task Scheduler Automation
+```powershell
+# Disable the responder task
+Get-ScheduledTask -TaskName 'HomeLab-RDP-Responder' | Disable-ScheduledTask
 
-The monitoring script runs on a recurring interval via Task Scheduler — highest privileges, independent of user logon state:
+# Register the alert-only monitor task
+.\05-automated-monitoring-alerting\scripts\rdp_monitor_task.ps1
+```
 
-![Scheduled task](evidence/the_task_in_task_scheduler.png)
+To switch back to full response, re-enable the responder task and disable the monitor.
 
-Manual execution to validate before leaving it on autopilot:
+You can also leave both registered and enabled — the monitor will alert and the responder will block on the same event. Slight redundancy, but useful when demoing.
 
-![Manual task run](evidence/running_the_task_once.png)
+## Smoke test
 
-The script stays silent during normal operation — only writes to the log file when suspicious activity is detected or an execution error occurs.
+Send a test webhook without generating any events:
 
----
+```powershell
+C:\HomeLab\rdp-dr\scripts\rdp_bruteforce_monitor.ps1 -TestWebhook
+```
 
-## End-to-End Validation
+Expected: green `Test alert sent.` line and a Discord message arriving in a few seconds.
 
-### Controlled Brute-Force from Kali
+## End-to-end validation
 
-Ran an nmap scan to confirm RDP exposure, then launched Hydra against a known account with a password list:
+1. From Kali:
 
-![Nmap + Hydra attack](evidence/kali-nmap-and-hydra-controlled-attack.png)
+   ```bash
+   hydra -l Administrator -P pw.txt -t 4 -V rdp://10.10.10.40
+   ```
 
-### Alert Delivered
+2. Watch on Windows:
 
-The monitoring script detected the authentication failure burst and fired an alert — source IP, target account, and failure count all captured:
+   ```powershell
+   Get-Content C:\HomeLab\rdp-dr\logs\rdp_monitor.log -Wait -Tail 20
+   ```
 
-![Discord brute-force alert](evidence/discord-rdp-bruteforce-alert_shows_IP_target_failuresCount.png)
+   You should see `SUSPECT: SourceIP=10.10.10.30 ...` lines as the threshold is crossed, paired with the Discord alert arriving in real time.
 
-### Account Lockout Triggered
+## Account lockout — a known side effect
 
-The repeated failures triggered Windows' built-in account lockout policy, temporarily locking the targeted account:
+Repeated failed authentication will trigger Windows' built-in account lockout policy and lock the targeted account temporarily. The monitor doesn't cause this — Windows does — but the monitor will fire its alert *before* the lockout because the threshold (5) is below the default lockout threshold (often 10). That's intentional: you want the alert to land before the user-impacting lockout happens, so an admin has a chance to intervene.
 
-![Account lockout](evidence/windows-account-lockout-policy-locked-account.png)
+To see / change the lockout policy:
 
-After recovery, RDP access was restored — confirming system stability post-lockout: [post-lockout RDP login](evidence/successful-rdp_suspect_logging-in-machine.png)
-
----
-
-## Key Takeaway
-
-The account lockout is worth noting — repeated authentication failures can cause denial of service to legitimate users even without successful compromise. This reinforces why early detection and alerting matter: you want to know about the attack *before* availability is impacted.
-
----
+```powershell
+net accounts                  # current policy
+secpol.msc                    # Local Security Policy GUI -> Account Policies
+```
 
 ## Next
 
-The monitoring pipeline detects and alerts on brute-force activity, but the endpoint still relies on Windows' built-in lockout as the only defense. The next phase introduces automated firewall-level response — blocking the attacker's IP before the lockout threshold is even reached.
+Phase 06 adds active response — the same detection now also drops a Windows Firewall block rule on the offender's IP, persisting the ban with expiration in JSON state.

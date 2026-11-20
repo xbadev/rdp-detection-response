@@ -1,63 +1,68 @@
 <#
-Task: rdp_responder_task.ps1 (Scheduled Task)
+.SYNOPSIS
+    Register the Phase 06 responder as an event-triggered scheduled task.
 
-Purpose
-- Runs the automated RDP brute-force response script on a fixed interval.
-- This task is the execution layer that turns detection + response logic into
-  continuous, hands-off enforcement on the Windows endpoint.
+.DESCRIPTION
+    Install.ps1 already does this — this script exists for two reasons:
+    (1) re-registering after manually editing the responder, without rerunning
+    full install; (2) demonstrating the task setup standalone, which is part of
+    the Phase 06 narrative for an interview walkthrough.
 
-What this task does
-- Executes the PowerShell responder script:
-  C:\homelab\scripts\rdp_bruteforce_responder.ps1
-- Passes runtime parameters that define:
-  - How far back to inspect failed logons (MinutesBack)
-  - How many failures trigger containment (Threshold)
-  - How long offending IPs are blocked (BanMinutes)
-
-Execution model
-- Runs as NT AUTHORITY\SYSTEM with highest privileges:
-  - Required for reading the Security event log
-  - Required for creating/removing Windows Firewall rules
-- Uses ExecutionPolicy Bypass so script execution is not blocked by local policy.
-- Runs without a user session and continues operating even when no one is logged in.
-
-Schedule behavior
-- Starts once shortly after task creation.
-- Repeats every 2 minutes indefinitely (configured for ~10 years).
-- Ensures near real-time response to RDP brute-force activity.
+    The task fires on every Security/4625 event, so attacker-to-block latency
+    is ~2-5 seconds rather than the 2-minute polling interval the original
+    repo used.
 #>
 
-$TaskName = "RDP_BruteForce_Responder"
+[CmdletBinding()]
+param()
 
-$Script   = "C:\homelab\scripts\rdp_bruteforce_responder.ps1"
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-# Action: run PowerShell and execute the responder script with defined thresholds
-$Args = "-NoProfile -ExecutionPolicy Bypass -File `"$Script`" -MinutesBack 2 -Threshold 5 -BanMinutes 30"
-$Action = New-ScheduledTaskAction -Execute "PowerShell.exe" -Argument $Args
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+            ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) { Write-Host "Run elevated." -ForegroundColor Red; exit 1 }
 
+$configPath = if ($env:RDP_LAB_CONFIG) { $env:RDP_LAB_CONFIG }
+              else { 'C:\HomeLab\rdp-dr\config\lab.config.psd1' }
 
-# Trigger: start shortly after creation, then repeat every 2 minutes long-term
-$Trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
-    -RepetitionInterval (New-TimeSpan -Minutes 2) `
-    -RepetitionDuration (New-TimeSpan -Days 3650)
+$cfg = Import-PowerShellDataFile -Path $configPath
 
-# Run as SYSTEM with highest privileges (required for Security log + firewall access)
-$Principal = New-ScheduledTaskPrincipal `
-    -UserId "NT AUTHORITY\SYSTEM" `
-    -LogonType ServiceAccount `
-    -RunLevel Highest
+$taskName = $cfg.ResponderTaskName
+$script   = "$($cfg.InstallRoot)\scripts\rdp_bruteforce_responder.ps1"
 
-# Settings: allow execution regardless of power state
-$Settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable
+Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue |
+    Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
 
-# Register (or overwrite) the scheduled task
+$action = New-ScheduledTaskAction `
+    -Execute 'PowerShell.exe' `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$script`""
+
+$eventXml = @'
+<QueryList>
+  <Query Id="0" Path="Security">
+    <Select Path="Security">*[System[(EventID=4625)]]</Select>
+  </Query>
+</QueryList>
+'@
+
+$cimTrigger = Get-CimClass -Namespace 'Root\Microsoft\Windows\TaskScheduler' -ClassName 'MSFT_TaskEventTrigger'
+$trigger = New-CimInstance -CimClass $cimTrigger -ClientOnly
+$trigger.Enabled      = $true
+$trigger.Subscription = $eventXml
+
+$principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+$settings  = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+    -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+
 Register-ScheduledTask `
-    -TaskName $TaskName `
-    -Action $Action `
-    -Trigger $Trigger `
-    -Principal $Principal `
-    -Settings $Settings `
-    -Force
+    -TaskName  $taskName `
+    -Action    $action `
+    -Trigger   $trigger `
+    -Principal $principal `
+    -Settings  $settings `
+    -Force | Out-Null
+
+Write-Host "Registered event-triggered task: $taskName" -ForegroundColor Green
+Write-Host "Trigger: every Security/4625 event"

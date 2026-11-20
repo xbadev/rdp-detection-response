@@ -1,67 +1,75 @@
-# Remote Access Attack Surface (RDP)
+# Phase 03 — Remote Access Attack Surface (RDP)
 
-Enabled Remote Desktop on the Windows endpoint to introduce a real authentication-based attack surface. RDP was chosen because it's widely used in enterprise environments and heavily targeted in real-world attacks.
+Enabled Remote Desktop on the Windows endpoint. RDP was chosen because it's the most-targeted authentication-bound service on Windows in the wild — making it the most realistic surface for the detection and response work in later phases.
 
 ## Environment
 
-| System  | Role     | IP Address     |
-|---------|----------|----------------|
-| Kali VM | Attacker | 192.168.56.30  |
-| Win VM  | Target   | 192.168.56.40  |
+| System | Role | IP |
+|---|---|---|
+| Kali | Attacker | `10.10.10.30` |
+| Windows | Target | `10.10.10.40` |
 
-Starting point: Phase 02 confirmed only scoped ICMP was allowed — no exposed TCP services.
-
----
+Starting state: Phase 02 validated source-scoped firewall rules with ICMP. No TCP services exposed yet.
 
 ## Steps
 
-### 1. Pre-Exposure Port Scan
+### 1. Pre-exposure scan
 
-Scanned the Windows endpoint from Kali — no listening TCP services:
+From Kali:
 
-![Nmap before RDP](evidence/kali-win-nmap-scan-before-rdp-enable.png)
+```bash
+nmap -Pn -p- --min-rate 1000 10.10.10.40
+```
+
+Expected: no open TCP ports (or only what's incidentally listening, e.g. nothing on a hardened baseline).
 
 ### 2. Enable Remote Desktop
 
-Enabled RDP through Windows system settings:
+In PowerShell on the Windows endpoint:
 
-![Enable RDP](evidence/win-enable-RemoteDesktop.png)
+```powershell
+# Enable RDP.
+Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
+    -Name 'fDenyTSConnections' -Value 0
 
-### 3. Post-Exposure Port Scan
+# Open the firewall rule group for RDP.
+Enable-NetFirewallRule -DisplayGroup 'Remote Desktop'
+```
 
-Repeated the same scan — port **3389/tcp** now open and identified as RDP:
+Equivalent via the GUI: **Settings → System → Remote Desktop → Enable**.
 
-![Nmap after RDP](evidence/kali-win-nmap-scan-after-rdp-enable.png)
+### 3. Post-exposure scan
 
-### 4. RDP Validation — Windows Client (mstsc)
+Repeat the nmap scan. Expected: TCP/3389 open and identified as `ms-wbt-server`.
 
-Connected via the built-in Remote Desktop client. Authentication succeeded, full interactive session established:
+### 4. Confirm reachability
 
-![mstsc connection](evidence/rdp-thru-mstsc.png)
+#### From a Windows client
 
-![RDP session established](evidence/remote-desktop-connection-successful.png)
+Use `mstsc` (built-in Remote Desktop Connection client). Authenticate with a valid local account. Expected: full interactive session.
 
-### 5. RDP Validation — Kali (xfreerdp)
+#### From Kali
 
-Connected from Kali using `xfreerdp`, confirming the service is reachable and functional from an attacker-controlled system:
+```bash
+xfreerdp /v:10.10.10.40 /u:bader /cert:ignore
+```
 
-![xfreerdp from Kali](evidence/xfreerdp3-version-and-command.png)
-
----
+Expected: prompt for password, then desktop session.
 
 ## Findings
 
-| Check | Result |
-|-------|--------|
-| Pre-RDP scan | No exposed TCP services |
-| Post-RDP scan | Port 3389 open |
-| Windows client (mstsc) | Authenticated successfully |
-| Kali client (xfreerdp) | Authenticated successfully |
+| Check | Pre-RDP | Post-RDP |
+|---|---|---|
+| nmap full TCP scan | Nothing open | 3389 open |
+| Authenticated session from Windows client | n/a | ✅ |
+| Authenticated session from Kali (`xfreerdp`) | n/a | ✅ |
 
-Enabling RDP immediately expanded the attack surface from zero exposed services to an active authentication endpoint reachable by any system on the network. Authentication is now the primary security boundary.
+Enabling RDP took the endpoint from zero exposed services to one authentication-bound service reachable from any host on `10.10.10.0/24`. Authentication is now the only barrier between an attacker on the lab subnet and an interactive session.
 
----
+## Why scope wasn't applied here
+
+Phase 02 demonstrated that you *can* scope a rule to a single source. RDP was deliberately left open to the whole subnet so the detection and response phases have something interesting to defend. In production you would scope this to a jump host or VPN range — the lab keeps it open precisely because the next phases are about catching the attack, not preventing it.
 
 ## Next
 
-With a real remote access service exposed, the next phase focuses on what happens when that entry point gets attacked — simulating brute-force attempts and analyzing how Windows logs authentication failures.
+Phase 04 builds the detection script that watches the Security event log for failed authentication patterns from the now-exposed RDP service.

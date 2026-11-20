@@ -1,84 +1,99 @@
-# RDP Authentication Failure Detection
+# Phase 04 — RDP Authentication Failure Detection
 
-Built a PowerShell detection script that monitors Windows Security logs for RDP brute-force patterns — filtering on Event ID 4625 (failed logon) with LogonType 3 (network), aggregating by source IP and target username within a time window.
+Standalone PowerShell script that pulls recent Security log entries, filters for failed RDP authentication, and prints any source IPs that crossed the threshold. This is the **diagnostic** phase — no alerting, no firewall action. The same logic gets reused (via a shared module) by the Phase 05 monitor and Phase 06 responder.
 
-**Detection Script:** [`rdp_bruteforce_detection.ps1`](scripts/rdp_bruteforce_detection.ps1)
+**Script:** [`scripts/rdp_bruteforce_detection.ps1`](scripts/rdp_bruteforce_detection.ps1)
+**Shared module:** [`Lib/RdpDetection.psm1`](../Lib/RdpDetection.psm1)
 
-## Environment
+## Why these specific events
 
-| System  | Role     | IP Address     |
-|---------|----------|----------------|
-| Kali VM | Attacker | 192.168.56.30  |
-| Win VM  | Target   | 192.168.56.40  |
+Windows doesn't have a "RDP attack" event. Authentication is logged uniformly for every method — local console, RDP, SMB, WMI, named-pipe — into the Security log. Two events matter:
 
-Starting point: Phase 03 confirmed RDP (port 3389) is exposed and accepting authentication.
+| Event ID | Meaning |
+|---|---|
+| 4624 | Successful logon |
+| 4625 | Failed logon |
 
----
+For brute-force detection, only 4625 matters. But 4625 also fires for failed local logons, mistyped service-account passwords, and background protocol auth. The discriminator is **LogonType**:
 
-## Understanding the Telemetry
+| LogonType | Source |
+|---|---|
+| 2 | Interactive (console) |
+| 3 | **Network** (RDP, SMB, WMI) |
+| 4 | Batch |
+| 5 | Service |
+| 7 | Unlock (screensaver) |
+| 10 | RemoteInteractive (also RDP) |
 
-Windows doesn't log "RDP attacks" directly — all authentication activity goes to the Security event log. The two relevant events are **4624** (successful logon) and **4625** (failed logon). Only 4625 matters for brute-force detection.
+Filtering on `LogonType = 3` cleanly isolates RDP failures from console failures and screen-unlock noise. (LogonType 10 also exists for RDP; in practice 4625 from RDP brute-force lands as type 3 because Network Level Authentication fails before the RemoteInteractive logon is even attempted.)
 
-RDP authentication failures are recorded as **LogonType 3** (Network logon). Without filtering on this, detection would pick up local console failures, service account auth, and background system noise.
+Each 4625 event carries:
+- `IpAddress` — source of the attempt
+- `TargetUserName` — account being attempted
+- `WorkstationName` — attacker-supplied (often spoofed)
+- `Status` / `SubStatus` — failure reason codes
 
-![Event 4625 details](evidence/4625-logon-failure-details.png)
+These are the fields the script extracts.
 
-Each 4625 event contains the source IP address, target username, and workstation name — the fields needed for correlation:
+## Detection logic
 
-![Workstation and IP fields](evidence/failed-logon-workstation-and-ipaddress.png)
+| Setting | Default | Reason |
+|---|---|---|
+| Threshold | 5 failures | A typo happens once or twice. Five rapid failures from one source against one user is a brute-force pattern. |
+| Window | 2 minutes | Tight enough to be noisy on attacks, loose enough to survive short auth lulls. |
+| Aggregation | by `(IpAddress, TargetUserName)` | An attacker hitting one user 20 times triggers; an attacker spreading 5 attempts across 5 users does not. (That broader pattern is "user enumeration" and would warrant a separate rule.) |
 
----
+The script:
 
-## Isolating RDP Failures
+1. Asserts elevation (Security log requires it).
+2. Calls `Get-RdpFailedLogons` from the shared module — pulls 4625 events, parses XML, filters to LogonType 3, drops loopback addresses.
+3. Calls `Find-BruteForceBursts` — groups by (IP, user), flags any group at/over threshold.
+4. Prints results, including the most recent 5 events per flagged group.
 
-Applied an advanced XML filter in Event Viewer to isolate only RDP-relevant failures: **Event ID 4625 + LogonType 3**.
+## Usage
 
-![XML filter](evidence/XML-detection-filter.png)
+After running `Install.ps1` from the repo root, in **elevated PowerShell**:
 
-Result — a clean, high-signal dataset with local login noise removed:
+```powershell
+# Default thresholds from lab.config.psd1
+C:\HomeLab\rdp-dr\scripts\rdp_bruteforce_detection.ps1
 
-![Filtered results](evidence/XML-detection-filter-result.png)
+# Override per-run
+C:\HomeLab\rdp-dr\scripts\rdp_bruteforce_detection.ps1 -MinutesBack 10 -Threshold 3
+```
 
----
+Or directly from the repo (development mode):
 
-## Detection Logic
-
-### Threshold
-
-**5 failed attempts from the same source within 2 minutes.**
-
-A human might mistype a password once or twice — automated attacks generate rapid, repeated failures. This threshold balances sensitivity with false-positive reduction and mirrors common SOC heuristics.
-
-### What the Script Does
-
-- Queries recent Event ID 4625 entries from the Security log
-- Parses event XML to extract source IP, target username, and timestamps
-- Filters for LogonType 3 only
-- Aggregates failures by source IP and target user within the time window
-- Flags any source exceeding the threshold
-
-### Privilege Requirement
-
-The Security log requires Administrator access. The script checks for elevation on launch and halts with a clear error if run without it: [run-script-not-elevated-error.png](evidence/run-script-not-elevated-error.png) · [add-administrator-requirement-clarity.png](evidence/add-administrator-requirement-clarity.png)
-
-Execution policy was set to allow controlled script execution: [executionpolicy.png](evidence/executionpolicy.png)
-
----
+```powershell
+.\04-detection-logic\scripts\rdp_bruteforce_detection.ps1
+```
 
 ## Validation
 
-Ran the script as Administrator after generating intentional failed RDP login attempts from Kali:
+1. From Kali, generate failed logons:
 
-![Script execution](evidence/run-script-as-administrator.png)
+   ```bash
+   hydra -l Administrator -P pw.txt -t 4 -V rdp://10.10.10.40
+   ```
 
-Detection output — source IP, target account, failure count, and timestamps all captured:
+   (Where `pw.txt` is a list of wrong passwords. 5+ entries needed to cross the default threshold.)
 
-![Detection results](evidence/script-failed-logon-detection-result-cli.png)
+2. On Windows, run the detection script:
 
-Normal system behavior produced no alerts. Intentional brute-force activity was flagged correctly.
+   ```powershell
+   C:\HomeLab\rdp-dr\scripts\rdp_bruteforce_detection.ps1
+   ```
 
----
+   Expected output: `SUSPECT: ...` block listing source IP `10.10.10.30`, target user, count, and the 5 most recent records.
+
+3. Re-run after 10 minutes (with no new attack). Expected: `OK: No failed RDP logons in the window.`
+
+## Privilege requirement
+
+The Security log is restricted to Administrators by default. Without elevation the script aborts with a clear error rather than failing silently inside `Get-WinEvent`.
+
+Execution policy is bypassed at the launch line (`-ExecutionPolicy Bypass`) when the script is invoked by the scheduled task — it does not require the system-wide policy to be loosened.
 
 ## Next
 
-The detection logic works — failed RDP auth from a specific source is reliably identified. The next phase wires this into automated monitoring and alerting so the endpoint doesn't depend on someone manually running the script.
+Phase 05 wraps the same logic with webhook alerting for unattended monitoring. Phase 06 adds firewall containment. Both use this phase's module functions verbatim — no logic re-implemented.
